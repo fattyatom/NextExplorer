@@ -7,6 +7,7 @@ import TerminalMenu from '@/components/TerminalMenu.vue';
 import SharesMenu from '@/components/SharesMenu.vue';
 import UploadProgress from '@/components/UploadProgress.vue';
 import ClipboardProgress from '@/components/ClipboardProgress.vue';
+import DownloadProgress from '@/components/DownloadProgress.vue';
 import UserMenu from '@/components/UserMenu.vue';
 import NotificationToastContainer from '@/components/NotificationToastContainer.vue';
 import NotificationPanel from '@/components/NotificationPanel.vue';
@@ -216,6 +217,7 @@ const handleGuestLogin = () => {
     ></button>
     <UploadProgress class="z-550" />
     <ClipboardProgress class="z-560" />
+    <DownloadProgress class="z-570" />
     <PreviewHost />
     <InfoPanel />
     <SpotlightSearch />
