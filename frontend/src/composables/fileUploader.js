@@ -4,17 +4,22 @@ import XHRUpload from '@uppy/xhr-upload';
 import { useUppyStore } from '@/stores/uppyStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useTransferStore } from '@/stores/transferStore';
 import { apiBase, normalizePath } from '@/api';
 import { isDisallowedUpload } from '@/utils/uploads';
+import { chunkedUpload } from '@/utils/chunkedUpload';
+import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
 import DropTarget from '@uppy/drop-target';
 
 export function useFileUploader() {
-  // Filtering is centralized in utils/uploads
   const uppyStore = useUppyStore();
   const fileStore = useFileStore();
   const notificationsStore = useNotificationsStore();
+  const transferStore = useTransferStore();
   const inputRef = ref(null);
   const files = ref([]);
+
+  const uppyToTransferId = new Map();
 
   let lastNotifyAt = 0;
   let lastNotifyHeading = '';
@@ -22,7 +27,6 @@ export function useFileUploader() {
   const canUploadToCurrentPath = () => {
     const access = fileStore.currentPathData;
     if (!access) {
-      // If share metadata hasn't loaded yet, fail closed to avoid accidental uploads.
       return !String(fileStore.currentPath || '').startsWith('share/');
     }
     return access.canUpload !== false;
@@ -47,7 +51,30 @@ export function useFileUploader() {
     notificationsStore.addNotification({ type: 'error', heading, ...extra });
   };
 
-  // Ensure a single Uppy instance app-wide
+  async function handleChunkedUpload(rawFile) {
+    const uploadTo = normalizePath(fileStore.currentPath || '');
+    const relativePath =
+      rawFile.webkitRelativePath || rawFile.name;
+    const id = transferStore.add('upload', rawFile.name, rawFile.size);
+
+    try {
+      const t = transferStore.transfers.get(id);
+      await chunkedUpload(
+        rawFile,
+        uploadTo,
+        relativePath,
+        (uploaded, total) => transferStore.updateProgress(id, uploaded, total),
+        t?.abortController?.signal
+      );
+      transferStore.complete(id);
+      fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      transferStore.fail(id, err.message || 'Upload failed');
+      notifyErrorOnce(err.message || 'Chunked upload failed');
+    }
+  }
+
   let uppy = uppyStore.uppy;
   const createdHere = ref(false);
 
@@ -64,13 +91,10 @@ export function useFileUploader() {
       fieldName: 'filedata',
       bundle: false,
       responseType: 'json',
-      // Uppy v5 expects `allowedMetaFields` to be `true` (all) or an explicit list.
-      // `null` results in *no* metadata being sent, which breaks `uploadTo`/`relativePath`.
       allowedMetaFields: true,
       withCredentials: true,
     });
 
-    // Cookies carry auth; no token headers
     uppy.on('file-added', (file) => {
       if (!canUploadToCurrentPath()) {
         uppy.removeFile?.(file.id);
@@ -83,7 +107,13 @@ export function useFileUploader() {
         return;
       }
 
-      // Ensure server always receives a usable relativePath, even for drag-and-drop
+      const rawFile = file?.data;
+      if (rawFile && rawFile.size > CHUNKED_TRANSFER_THRESHOLD) {
+        uppy.removeFile?.(file.id);
+        handleChunkedUpload(rawFile);
+        return;
+      }
+
       const inferredRelativePath =
         file?.meta?.relativePath ||
         file?.data?.webkitRelativePath ||
@@ -91,7 +121,6 @@ export function useFileUploader() {
         (file?.data && file?.data.name) ||
         '';
 
-      // Some rare DnD sources may miss name; prefer data.name if present
       if (!file?.name && file?.data?.name && typeof uppy.setFileName === 'function') {
         try {
           uppy.setFileName(file.id, file.data.name);
@@ -104,16 +133,24 @@ export function useFileUploader() {
         uploadTo: normalizePath(fileStore.currentPath || ''),
         relativePath: inferredRelativePath,
       });
+
+      const tid = transferStore.add('upload', file.name || rawFile?.name || 'file', rawFile?.size || 0);
+      uppyToTransferId.set(file.id, tid);
+    });
+
+    uppy.on('upload-progress', (file, progress) => {
+      const tid = uppyToTransferId.get(file?.id);
+      if (tid && progress) {
+        transferStore.updateProgress(tid, progress.bytesUploaded || 0, progress.bytesTotal || 0);
+      }
     });
 
     uppy.on('upload', (_uploadID, batchFiles) => {
-      // Safety net: if permissions changed after files were queued, cancel *only* when the
-      // batch is targeting the currently-viewed path (avoids canceling uploads after navigation).
       const current = normalizePath(fileStore.currentPath || '');
-      const files = Array.isArray(batchFiles) ? batchFiles : [];
+      const batchList = Array.isArray(batchFiles) ? batchFiles : [];
       const targetsCurrentPath =
-        files.length > 0 &&
-        files.every((f) => normalizePath(f?.meta?.uploadTo || '') === current);
+        batchList.length > 0 &&
+        batchList.every((f) => normalizePath(f?.meta?.uploadTo || '') === current);
 
       if (!targetsCurrentPath) return;
       if (canUploadToCurrentPath()) return;
@@ -126,11 +163,25 @@ export function useFileUploader() {
       notifyErrorOnce(uploadBlockedMessage(), { durationMs: 5000 });
     });
 
-    uppy.on('upload-success', () => {
+    uppy.on('upload-success', (file) => {
+      const tid = uppyToTransferId.get(file?.id);
+      if (tid) {
+        transferStore.complete(tid);
+        uppyToTransferId.delete(file?.id);
+      }
       fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
     });
 
-    uppy.on('upload-error', (_file, error, response) => {
+    uppy.on('upload-error', (file, error, response) => {
+      const tid = uppyToTransferId.get(file?.id);
+      if (tid) {
+        const body = response?.body;
+        const nested = body && typeof body === 'object' ? body?.error : null;
+        const msg = (nested && typeof nested === 'object' ? nested.message : nested) || error?.message || 'Upload failed';
+        transferStore.fail(tid, msg);
+        uppyToTransferId.delete(file?.id);
+      }
+
       const body = response?.body;
       const nested = body && typeof body === 'object' ? body?.error : null;
       const nestedObj = nested && typeof nested === 'object' ? nested : null;
@@ -149,7 +200,6 @@ export function useFileUploader() {
         requestId: nestedObj?.requestId || null,
         statusCode: nestedObj?.statusCode ?? response?.status,
       });
-      // Keep UI in sync in case some files partially uploaded.
       if (fileStore.currentPath) {
         fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
       }
@@ -160,8 +210,6 @@ export function useFileUploader() {
       notifyErrorOnce(message);
     });
 
-    // Uppy v5 uses private class fields; if it gets wrapped in a Vue Proxy (reactive store),
-    // method calls will throw "Cannot read from private field". Keep it raw.
     uppyStore.uppy = markRaw(uppy);
     createdHere.value = true;
   }
@@ -217,7 +265,6 @@ export function useFileUploader() {
         files.value = selectedFiles.map((file) => uppyFile(file));
         files.value.forEach((file) => uppy.addFile(file));
 
-        // Reset the input so the same file can be selected again if needed
         e.target.value = '';
         resolve();
       };
@@ -236,9 +283,7 @@ export function useFileUploader() {
 
   onBeforeUnmount(() => {
     inputRef.value?.remove();
-    // Only close the singleton if we created it here
     if (createdHere.value) {
-      // Uppy v5 uses `destroy()`. Older versions had `close()` in some setups.
       uppy.destroy?.();
       uppy.close?.();
       if (uppyStore.uppy === uppy) {
@@ -253,7 +298,6 @@ export function useFileUploader() {
   };
 }
 
-// Attach/detach Uppy DropTarget plugin to a given element ref
 export function useUppyDropTarget(targetRef) {
   const uppyStore = useUppyStore();
 

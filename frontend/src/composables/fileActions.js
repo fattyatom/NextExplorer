@@ -1,8 +1,9 @@
 import { computed } from 'vue';
 import { useFileStore } from '@/stores/fileStore';
 import { normalizePath } from '@/api';
-import { chunkedDownload, CHUNKED_DOWNLOAD_THRESHOLD } from '@/utils/chunkedDownload';
-import { useDownloadProgressStore } from '@/stores/downloadProgress';
+import { chunkedDownload } from '@/utils/chunkedDownload';
+import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
+import { useTransferStore } from '@/stores/transferStore';
 
 function isEditableElement(el) {
   if (!el) return false;
@@ -146,30 +147,29 @@ export function useFileActions() {
       items.length === 1 &&
       items[0].kind !== 'directory' &&
       items[0].kind !== 'volume' &&
-      items[0].size > CHUNKED_DOWNLOAD_THRESHOLD;
+      items[0].size > CHUNKED_TRANSFER_THRESHOLD;
 
     if (isSingleLargeFile) {
       const item = items[0];
       const filePath = resolveItemPath(item);
       if (!filePath) return;
 
-      const dlStore = useDownloadProgressStore();
-      const id = Date.now().toString(36);
-      dlStore.start(id, item.name, item.size);
+      const store = useTransferStore();
+      const id = store.add('download', item.name, item.size);
 
       try {
-        const dl = dlStore.downloads.get(id);
+        const t = store.transfers.get(id);
         await chunkedDownload(
           filePath,
           item.name,
           item.size,
-          (downloaded, total) => dlStore.updateProgress(id, downloaded, total),
-          dl?.abortController?.signal
+          (downloaded, total) => store.updateProgress(id, downloaded, total),
+          t?.abortController?.signal
         );
-        dlStore.complete(id);
+        store.complete(id);
       } catch (err) {
         if (err.name === 'AbortError') return;
-        dlStore.fail(id, err.message || 'Download failed');
+        store.fail(id, err.message || 'Download failed');
       }
       return;
     }

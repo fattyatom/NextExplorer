@@ -5,9 +5,8 @@ import FavMenu from '@/components/FavMenu.vue';
 import VolMenu from '@/components/VolMenu.vue';
 import TerminalMenu from '@/components/TerminalMenu.vue';
 import SharesMenu from '@/components/SharesMenu.vue';
-import UploadProgress from '@/components/UploadProgress.vue';
+import TransferPanel from '@/components/TransferPanel.vue';
 import ClipboardProgress from '@/components/ClipboardProgress.vue';
-import DownloadProgress from '@/components/DownloadProgress.vue';
 import UserMenu from '@/components/UserMenu.vue';
 import NotificationToastContainer from '@/components/NotificationToastContainer.vue';
 import NotificationPanel from '@/components/NotificationPanel.vue';
@@ -215,9 +214,8 @@ const handleGuestLogin = () => {
       :aria-label="$t('browser.closeSidebar')"
       @click="closeSidebar"
     ></button>
-    <UploadProgress class="z-550" />
+    <TransferPanel class="z-550" />
     <ClipboardProgress class="z-560" />
-    <DownloadProgress class="z-570" />
     <PreviewHost />
     <InfoPanel />
     <SpotlightSearch />

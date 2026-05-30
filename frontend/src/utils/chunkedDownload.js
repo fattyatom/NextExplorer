@@ -1,26 +1,19 @@
 import { buildUrl, normalizePath } from '@/api/http';
-
-const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
+import {
+  CHUNK_SIZE,
+  iterateChunks,
+  withRetry,
+  getCommonHeaders,
+  checkAborted,
+} from './chunkedTransfer';
 
 const supportsFileSystemAccess =
-  typeof window !== 'undefined' &&
-  typeof window.showSaveFilePicker === 'function';
+  typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
 
 function buildRangeUrl(filePath) {
   const normalized = normalizePath(filePath);
   const params = new URLSearchParams({ path: normalized });
   return buildUrl(`/api/files/range-download?${params.toString()}`);
-}
-
-function getCommonHeaders() {
-  const headers = {};
-  const guestSessionId = sessionStorage.getItem('guestSessionId');
-  if (guestSessionId) {
-    headers['X-Guest-Session'] = guestSessionId;
-  }
-  return headers;
 }
 
 async function fetchFileSize(url) {
@@ -39,26 +32,18 @@ async function fetchFileSize(url) {
   return size;
 }
 
-async function fetchChunk(url, start, end, retries = MAX_RETRIES) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...getCommonHeaders(),
-          Range: `bytes=${start}-${end}`,
-        },
-      });
-      if (res.status !== 206 && res.status !== 200) {
-        throw new Error(`Chunk fetch failed: ${res.status}`);
-      }
-      return await res.arrayBuffer();
-    } catch (err) {
-      if (attempt === retries) throw err;
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
+async function fetchChunk(url, start, end) {
+  return withRetry(async () => {
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { ...getCommonHeaders(), Range: `bytes=${start}-${end}` },
+    });
+    if (res.status !== 206 && res.status !== 200) {
+      throw new Error(`Chunk fetch failed: ${res.status}`);
     }
-  }
+    return res.arrayBuffer();
+  });
 }
 
 async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal) {
@@ -70,11 +55,8 @@ async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress,
   let downloaded = 0;
 
   try {
-    for (let start = 0; start < fileSize; start += CHUNK_SIZE) {
-      if (signal?.aborted) {
-        throw new DOMException('Download cancelled', 'AbortError');
-      }
-      const end = Math.min(start + CHUNK_SIZE - 1, fileSize - 1);
+    for (const { start, end } of iterateChunks(fileSize)) {
+      checkAborted(signal);
       const chunk = await fetchChunk(url, start, end);
       await writable.write(new Uint8Array(chunk));
       downloaded += chunk.byteLength;
@@ -89,11 +71,8 @@ async function downloadWithBlobFallback(url, filename, fileSize, onProgress, sig
   const chunks = [];
   let downloaded = 0;
 
-  for (let start = 0; start < fileSize; start += CHUNK_SIZE) {
-    if (signal?.aborted) {
-      throw new DOMException('Download cancelled', 'AbortError');
-    }
-    const end = Math.min(start + CHUNK_SIZE - 1, fileSize - 1);
+  for (const { start, end } of iterateChunks(fileSize)) {
+    checkAborted(signal);
     const chunk = await fetchChunk(url, start, end);
     chunks.push(chunk);
     downloaded += chunk.byteLength;
@@ -122,5 +101,3 @@ export async function chunkedDownload(filePath, filename, knownSize, onProgress,
     await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
   }
 }
-
-export const CHUNKED_DOWNLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB
