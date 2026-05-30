@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted, onBeforeUnmount } from 'vue';
 import {
   XMarkIcon,
   ChevronDownIcon,
@@ -18,6 +18,16 @@ const visible = computed(() => store.visible);
 const collapsed = computed(() => store.panelCollapsed);
 const progress = computed(() => store.overallProgress);
 const counts = computed(() => store.counts);
+
+function onBeforeUnload(e) {
+  if (store.hasActive) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+}
+
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload));
+onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload));
 
 const headerText = computed(() => {
   const c = counts.value;
@@ -147,7 +157,10 @@ function barClass(t) {
               {{ t.filename }}
             </span>
             <span class="text-xs tabular-nums text-zinc-400 shrink-0">
-              <template v-if="t.status === 'active'">{{ t.percentage }}%</template>
+              <template v-if="t.status === 'active'">
+                <template v-if="t.totalBytes > 0">{{ t.percentage }}%</template>
+                <template v-else>{{ formatBytes(t.transferredBytes) }}</template>
+              </template>
               <template v-else-if="t.status === 'complete'">Done</template>
               <template v-else-if="t.status === 'error'">Failed</template>
             </span>
@@ -167,14 +180,19 @@ function barClass(t) {
           <div class="mt-1.5 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
             <div
               class="h-full rounded-full tf-bar transition-all duration-300"
-              :class="barClass(t)"
-              :style="`width: ${t.percentage}%`"
+              :class="[barClass(t), { 'tf-bar--indeterminate': t.status === 'active' && t.totalBytes <= 0 }]"
+              :style="`width: ${t.totalBytes > 0 ? t.percentage : 100}%`"
             />
           </div>
 
           <!-- Size -->
           <div class="mt-1 text-[11px] text-zinc-400 tabular-nums">
-            {{ formatBytes(t.transferredBytes) }} / {{ formatBytes(t.totalBytes) }}
+            <template v-if="t.totalBytes > 0">
+              {{ formatBytes(t.transferredBytes) }} / {{ formatBytes(t.totalBytes) }}
+            </template>
+            <template v-else>
+              {{ formatBytes(t.transferredBytes) }}
+            </template>
             <span v-if="t.status === 'error'" class="text-red-400 ml-1">{{ t.error }}</span>
           </div>
         </div>
@@ -210,5 +228,15 @@ function barClass(t) {
 @keyframes tfShimmer {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+.tf-bar--indeterminate {
+  animation: tfPulse 1.5s ease-in-out infinite;
+}
+@keyframes tfPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tf-bar--indeterminate { animation: none; }
 }
 </style>

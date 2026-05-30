@@ -16,11 +16,12 @@ function buildRangeUrl(filePath) {
   return buildUrl(`/api/files/range-download?${params.toString()}`);
 }
 
-async function fetchFileSize(url) {
+async function fetchFileSize(url, signal) {
   const res = await fetch(url, {
     method: 'HEAD',
     credentials: 'include',
     headers: getCommonHeaders(),
+    signal,
   });
   if (!res.ok) {
     throw new Error(`HEAD request failed: ${res.status} ${res.statusText}`);
@@ -32,12 +33,13 @@ async function fetchFileSize(url) {
   return size;
 }
 
-async function fetchChunk(url, start, end) {
+async function fetchChunk(url, start, end, signal) {
   return withRetry(async () => {
     const res = await fetch(url, {
       method: 'GET',
       credentials: 'include',
       headers: { ...getCommonHeaders(), Range: `bytes=${start}-${end}` },
+      signal,
     });
     if (res.status !== 206 && res.status !== 200) {
       throw new Error(`Chunk fetch failed: ${res.status}`);
@@ -57,7 +59,7 @@ async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress,
   try {
     for (const { start, end } of iterateChunks(fileSize)) {
       checkAborted(signal);
-      const chunk = await fetchChunk(url, start, end);
+      const chunk = await fetchChunk(url, start, end, signal);
       await writable.write(new Uint8Array(chunk));
       downloaded += chunk.byteLength;
       onProgress?.(downloaded, fileSize);
@@ -73,7 +75,7 @@ async function downloadWithBlobFallback(url, filename, fileSize, onProgress, sig
 
   for (const { start, end } of iterateChunks(fileSize)) {
     checkAborted(signal);
-    const chunk = await fetchChunk(url, start, end);
+    const chunk = await fetchChunk(url, start, end, signal);
     chunks.push(chunk);
     downloaded += chunk.byteLength;
     onProgress?.(downloaded, fileSize);
@@ -93,7 +95,7 @@ async function downloadWithBlobFallback(url, filename, fileSize, onProgress, sig
 
 export async function chunkedDownload(filePath, filename, knownSize, onProgress, signal) {
   const url = buildRangeUrl(filePath);
-  const fileSize = knownSize || (await fetchFileSize(url));
+  const fileSize = knownSize || (await fetchFileSize(url, signal));
 
   if (supportsFileSystemAccess) {
     await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal);
@@ -108,9 +110,16 @@ function parseFilenameFromHeaders(headers) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function streamResponseToBlob(response, onProgress, signal) {
+async function streamResponseToBlob(response, onProgress, signal, fallbackTotal = 0) {
   const totalStr = response.headers.get('content-length');
-  const total = totalStr ? Number(totalStr) : 0;
+  const total = (totalStr && Number(totalStr) > 0) ? Number(totalStr) : fallbackTotal;
+
+  if (!response.body) {
+    const blob = await response.blob();
+    onProgress?.(blob.size, blob.size);
+    return blob;
+  }
+
   const reader = response.body.getReader();
   const chunks = [];
   let received = 0;
@@ -121,7 +130,7 @@ async function streamResponseToBlob(response, onProgress, signal) {
     if (done) break;
     chunks.push(value);
     received += value.byteLength;
-    if (total > 0) onProgress?.(received, total);
+    onProgress?.(received, total > 0 ? total : received);
   }
 
   return new Blob(chunks);
@@ -147,11 +156,12 @@ export async function streamedDownload(filePath, filename, knownSize, onProgress
     method: 'GET',
     credentials: 'include',
     headers: getCommonHeaders(),
+    signal,
   });
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
 
   const resolvedName = parseFilenameFromHeaders(res.headers) || filename;
-  const blob = await streamResponseToBlob(res, onProgress, signal);
+  const blob = await streamResponseToBlob(res, onProgress, signal, knownSize);
   triggerBlobDownload(blob, resolvedName);
 }
 
@@ -163,6 +173,7 @@ export async function streamedPostDownload(paths, basePath, filename, onProgress
     credentials: 'include',
     headers: { ...getCommonHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ items: paths, basePath }),
+    signal,
   });
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
 
