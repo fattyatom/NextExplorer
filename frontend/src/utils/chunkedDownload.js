@@ -101,3 +101,72 @@ export async function chunkedDownload(filePath, filename, knownSize, onProgress,
     await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
   }
 }
+
+function parseFilenameFromHeaders(headers) {
+  const disposition = headers.get('content-disposition') || '';
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+async function streamResponseToBlob(response, onProgress, signal) {
+  const totalStr = response.headers.get('content-length');
+  const total = totalStr ? Number(totalStr) : 0;
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+
+  while (true) {
+    checkAborted(signal);
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.byteLength;
+    if (total > 0) onProgress?.(received, total);
+  }
+
+  return new Blob(chunks);
+}
+
+function triggerBlobDownload(blob, filename) {
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+}
+
+export async function streamedDownload(filePath, filename, knownSize, onProgress, signal) {
+  const url = buildRangeUrl(filePath);
+  checkAborted(signal);
+
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers: getCommonHeaders(),
+  });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
+  const resolvedName = parseFilenameFromHeaders(res.headers) || filename;
+  const blob = await streamResponseToBlob(res, onProgress, signal);
+  triggerBlobDownload(blob, resolvedName);
+}
+
+export async function streamedPostDownload(paths, basePath, filename, onProgress, signal) {
+  checkAborted(signal);
+
+  const res = await fetch(buildUrl('/api/download'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { ...getCommonHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: paths, basePath }),
+  });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
+  const resolvedName = parseFilenameFromHeaders(res.headers) || filename;
+  const blob = await streamResponseToBlob(res, onProgress, signal);
+  triggerBlobDownload(blob, resolvedName);
+}

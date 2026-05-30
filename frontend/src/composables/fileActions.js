@@ -1,7 +1,7 @@
 import { computed } from 'vue';
 import { useFileStore } from '@/stores/fileStore';
 import { normalizePath } from '@/api';
-import { chunkedDownload } from '@/utils/chunkedDownload';
+import { chunkedDownload, streamedDownload, streamedPostDownload } from '@/utils/chunkedDownload';
 import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
 import { useTransferStore } from '@/stores/transferStore';
 
@@ -112,29 +112,20 @@ export function useFileActions() {
     await fileStore.del();
   };
 
-  const formDownload = (paths, currentPath) => {
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/api/download';
-    form.style.display = 'none';
-
-    paths.forEach((p) => {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = 'paths';
-      input.value = p;
-      form.appendChild(input);
-    });
-
-    const baseInput = document.createElement('input');
-    baseInput.type = 'hidden';
-    baseInput.name = 'basePath';
-    baseInput.value = currentPath;
-    form.appendChild(baseInput);
-
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
+  const trackedDownload = async (name, size, downloadFn) => {
+    const store = useTransferStore();
+    const id = store.add('download', name, size || 0);
+    try {
+      const t = store.transfers.get(id);
+      await downloadFn(
+        (downloaded, total) => store.updateProgress(id, downloaded, total),
+        t?.abortController?.signal
+      );
+      store.complete(id);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      store.fail(id, err.message || 'Download failed');
+    }
   };
 
   const runDownload = async () => {
@@ -143,34 +134,23 @@ export function useFileActions() {
     const items = selectedItems.value;
     const currentPath = normalizePath(fileStore.getCurrentPath || '');
 
-    const isSingleLargeFile =
+    const isSingleFile =
       items.length === 1 &&
       items[0].kind !== 'directory' &&
-      items[0].kind !== 'volume' &&
-      items[0].size > CHUNKED_TRANSFER_THRESHOLD;
+      items[0].kind !== 'volume';
 
-    if (isSingleLargeFile) {
+    if (isSingleFile) {
       const item = items[0];
       const filePath = resolveItemPath(item);
       if (!filePath) return;
 
-      const store = useTransferStore();
-      const id = store.add('download', item.name, item.size);
+      const usesChunking = item.size > CHUNKED_TRANSFER_THRESHOLD;
 
-      try {
-        const t = store.transfers.get(id);
-        await chunkedDownload(
-          filePath,
-          item.name,
-          item.size,
-          (downloaded, total) => store.updateProgress(id, downloaded, total),
-          t?.abortController?.signal
-        );
-        store.complete(id);
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        store.fail(id, err.message || 'Download failed');
-      }
+      await trackedDownload(item.name, item.size, (onProgress, signal) =>
+        usesChunking
+          ? chunkedDownload(filePath, item.name, item.size, onProgress, signal)
+          : streamedDownload(filePath, item.name, item.size, onProgress, signal)
+      );
       return;
     }
 
@@ -183,7 +163,14 @@ export function useFileActions() {
       .filter(Boolean);
 
     if (!paths.length) return;
-    formDownload(paths, currentPath);
+
+    const zipName =
+      items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
+    const totalSize = items.reduce((s, i) => s + (i.size || 0), 0);
+
+    await trackedDownload(zipName, totalSize, (onProgress, signal) =>
+      streamedPostDownload(paths, currentPath, zipName, onProgress, signal)
+    );
   };
 
   return {
