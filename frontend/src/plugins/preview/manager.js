@@ -3,8 +3,7 @@ import { ref, computed } from 'vue';
 import { getPreviewUrl, normalizePath, fetchFileContent } from '@/api';
 import { useFileStore } from '@/stores/fileStore';
 import { useTransferStore } from '@/stores/transferStore';
-import { chunkedDownload, streamedDownload } from '@/utils/chunkedDownload';
-import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
+import { download } from '@/utils/chunkedDownload';
 import router from '@/router';
 
 export const usePreviewManager = defineStore('preview-manager', () => {
@@ -63,11 +62,7 @@ export const usePreviewManager = defineStore('preview-manager', () => {
         const onProgress = (dl, total) => transferStore.updateProgress(id, dl, total);
         const signal = t?.abortController?.signal;
 
-        if (size > CHUNKED_TRANSFER_THRESHOLD) {
-          await chunkedDownload(path, filename, size, onProgress, signal);
-        } else {
-          await streamedDownload(path, filename, size, onProgress, signal);
-        }
+        await download({ path, filename, size, onProgress, signal });
         transferStore.complete(id);
       } catch (err) {
         if (err.name === 'AbortError') return;

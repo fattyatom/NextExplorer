@@ -1,8 +1,7 @@
 import { computed } from 'vue';
 import { useFileStore } from '@/stores/fileStore';
-import { normalizePath, buildUrl } from '@/api';
-import { chunkedDownload, streamedDownload } from '@/utils/chunkedDownload';
-import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
+import { normalizePath } from '@/api';
+import { download, prepareDownload } from '@/utils/chunkedDownload';
 import { useTransferStore } from '@/stores/transferStore';
 
 function isEditableElement(el) {
@@ -144,12 +143,8 @@ export function useFileActions() {
       const filePath = resolveItemPath(item);
       if (!filePath) return;
 
-      const usesChunking = item.size > CHUNKED_TRANSFER_THRESHOLD;
-
       await trackedDownload(item.name, item.size, (onProgress, signal) =>
-        usesChunking
-          ? chunkedDownload(filePath, item.name, item.size, onProgress, signal)
-          : streamedDownload(filePath, item.name, item.size, onProgress, signal)
+        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal })
       );
       return;
     }
@@ -164,28 +159,18 @@ export function useFileActions() {
 
     if (!paths.length) return;
 
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = buildUrl('/api/download');
-    form.style.display = 'none';
+    const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
-    paths.forEach((p) => {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = 'paths';
-      input.value = p;
-      form.appendChild(input);
+    await trackedDownload(zipName, 0, async (onProgress, signal) => {
+      const prepared = await prepareDownload(paths, currentPath, signal);
+      await download({
+        downloadId: prepared.downloadId,
+        filename: prepared.filename,
+        size: prepared.size,
+        onProgress,
+        signal,
+      });
     });
-
-    const baseInput = document.createElement('input');
-    baseInput.type = 'hidden';
-    baseInput.name = 'basePath';
-    baseInput.value = currentPath;
-    form.appendChild(baseInput);
-
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
   };
 
   return {

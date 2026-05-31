@@ -1,6 +1,7 @@
 import { buildUrl, normalizePath } from '@/api/http';
 import {
   CHUNK_SIZE,
+  CHUNKED_TRANSFER_THRESHOLD,
   iterateChunks,
   withRetry,
   getCommonHeaders,
@@ -10,11 +11,18 @@ import {
 const supportsFileSystemAccess =
   typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
 
-function buildRangeUrl(filePath) {
+function buildDownloadUrl(filePath, downloadId) {
+  if (downloadId) {
+    return buildUrl(`/api/range-download?downloadId=${encodeURIComponent(downloadId)}`);
+  }
   const normalized = normalizePath(filePath);
   const params = new URLSearchParams({ path: normalized });
   return buildUrl(`/api/range-download?${params.toString()}`);
 }
+
+// ---------------------------------------------------------------------------
+// Internals shared by streamed and chunked paths
+// ---------------------------------------------------------------------------
 
 async function fetchFileSize(url, signal) {
   const res = await fetch(url, {
@@ -46,62 +54,6 @@ async function fetchChunk(url, start, end, signal) {
     }
     return res.arrayBuffer();
   });
-}
-
-async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal) {
-  const handle = await window.showSaveFilePicker({
-    suggestedName: filename,
-    startIn: 'downloads',
-  });
-  const writable = await handle.createWritable();
-  let downloaded = 0;
-
-  try {
-    for (const { start, end } of iterateChunks(fileSize)) {
-      checkAborted(signal);
-      const chunk = await fetchChunk(url, start, end, signal);
-      await writable.write(new Uint8Array(chunk));
-      downloaded += chunk.byteLength;
-      onProgress?.(downloaded, fileSize);
-    }
-  } finally {
-    await writable.close();
-  }
-}
-
-async function downloadWithBlobFallback(url, filename, fileSize, onProgress, signal) {
-  const chunks = [];
-  let downloaded = 0;
-
-  for (const { start, end } of iterateChunks(fileSize)) {
-    checkAborted(signal);
-    const chunk = await fetchChunk(url, start, end, signal);
-    chunks.push(chunk);
-    downloaded += chunk.byteLength;
-    onProgress?.(downloaded, fileSize);
-  }
-
-  const blob = new Blob(chunks);
-  const blobUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = blobUrl;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-}
-
-export async function chunkedDownload(filePath, filename, knownSize, onProgress, signal) {
-  const url = buildRangeUrl(filePath);
-  const fileSize = knownSize || (await fetchFileSize(url, signal));
-
-  if (supportsFileSystemAccess) {
-    await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal);
-  } else {
-    await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
-  }
 }
 
 function parseFilenameFromHeaders(headers) {
@@ -148,10 +100,91 @@ function triggerBlobDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }
 
-export async function streamedDownload(filePath, filename, knownSize, onProgress, signal) {
-  const url = buildRangeUrl(filePath);
+// ---------------------------------------------------------------------------
+// Chunked download (Range requests, for files > CHUNKED_TRANSFER_THRESHOLD)
+// ---------------------------------------------------------------------------
+
+async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal) {
+  const handle = await window.showSaveFilePicker({
+    suggestedName: filename,
+    startIn: 'downloads',
+  });
+  const writable = await handle.createWritable();
+  let downloaded = 0;
+
+  try {
+    for (const { start, end } of iterateChunks(fileSize)) {
+      checkAborted(signal);
+      const chunk = await fetchChunk(url, start, end, signal);
+      await writable.write(new Uint8Array(chunk));
+      downloaded += chunk.byteLength;
+      onProgress?.(downloaded, fileSize);
+    }
+  } finally {
+    await writable.close();
+  }
+}
+
+async function downloadWithBlobFallback(url, filename, fileSize, onProgress, signal) {
+  const chunks = [];
+  let downloaded = 0;
+
+  for (const { start, end } of iterateChunks(fileSize)) {
+    checkAborted(signal);
+    const chunk = await fetchChunk(url, start, end, signal);
+    chunks.push(chunk);
+    downloaded += chunk.byteLength;
+    onProgress?.(downloaded, fileSize);
+  }
+
+  const blob = new Blob(chunks);
+  triggerBlobDownload(blob, filename);
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Prepare a multi-file or directory download as a zip on the server.
+ * Returns { downloadId, filename, size } for use with download().
+ */
+export async function prepareDownload(paths, basePath, signal) {
   checkAborted(signal);
 
+  const res = await fetch(buildUrl('/api/download/prepare'), {
+    method: 'POST',
+    credentials: 'include',
+    headers: { ...getCommonHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: paths, basePath }),
+    signal,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message || `Prepare failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Download a file with progress tracking.
+ * Provide either `path` (single file) or `downloadId` (prepared zip).
+ * Automatically selects chunked vs streamed based on file size.
+ */
+export async function download({ path, downloadId, filename, size, onProgress, signal }) {
+  const url = buildDownloadUrl(path, downloadId);
+  const fileSize = size || (await fetchFileSize(url, signal));
+
+  if (fileSize > CHUNKED_TRANSFER_THRESHOLD) {
+    if (supportsFileSystemAccess) {
+      await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal);
+    } else {
+      await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
+    }
+    return;
+  }
+
+  checkAborted(signal);
   const res = await fetch(url, {
     method: 'GET',
     credentials: 'include',
@@ -161,23 +194,6 @@ export async function streamedDownload(filePath, filename, knownSize, onProgress
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
 
   const resolvedName = parseFilenameFromHeaders(res.headers) || filename;
-  const blob = await streamResponseToBlob(res, onProgress, signal, knownSize);
-  triggerBlobDownload(blob, resolvedName);
-}
-
-export async function streamedPostDownload(paths, basePath, filename, onProgress, signal) {
-  checkAborted(signal);
-
-  const res = await fetch(buildUrl('/api/download'), {
-    method: 'POST',
-    credentials: 'include',
-    headers: { ...getCommonHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: paths, basePath }),
-    signal,
-  });
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-
-  const resolvedName = parseFilenameFromHeaders(res.headers) || filename;
-  const blob = await streamResponseToBlob(res, onProgress, signal);
+  const blob = await streamResponseToBlob(res, onProgress, signal, fileSize);
   triggerBlobDownload(blob, resolvedName);
 }

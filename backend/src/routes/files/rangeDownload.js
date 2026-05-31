@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const fss = require('fs');
 const { normalizeRelativePath } = require('../../utils/pathUtils');
 const { resolvePathWithAccess } = require('../../services/accessManager');
+const preparedDownloads = require('../../services/preparedDownloads');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ValidationError, ForbiddenError, NotFoundError } = require('../../errors/AppError');
 const logger = require('../../utils/logger');
@@ -35,10 +36,24 @@ const getMimeType = (ext) => {
   return map[ext] || 'application/octet-stream';
 };
 
-const handler = asyncHandler(async (req, res) => {
+async function resolveTarget(req) {
+  const downloadId = req.query?.downloadId;
+  if (downloadId) {
+    const dl = preparedDownloads.get(downloadId);
+    if (!dl) {
+      throw new NotFoundError('Prepared download not found or expired.');
+    }
+    const userId = req.user?.id || req.guestSession?.id || null;
+    if (dl.userId !== userId) {
+      throw new ForbiddenError('Download belongs to a different user.');
+    }
+    const stats = await fs.stat(dl.tempPath);
+    return { absolutePath: dl.tempPath, filename: dl.filename, stats };
+  }
+
   const relative = req.query?.path;
   if (typeof relative !== 'string' || !relative.trim()) {
-    throw new ValidationError('A file path query parameter is required.');
+    throw new ValidationError('A file path or downloadId query parameter is required.');
   }
 
   const relativePath = normalizeRelativePath(relative);
@@ -56,10 +71,15 @@ const handler = asyncHandler(async (req, res) => {
   const stats = await fs.stat(absolutePath);
 
   if (stats.isDirectory()) {
-    throw new ValidationError('Cannot download a directory via this endpoint. Use POST /api/download instead.');
+    throw new ValidationError(
+      'Cannot download a directory via this endpoint. Use POST /api/download/prepare instead.'
+    );
   }
 
-  const filename = path.basename(absolutePath);
+  return { absolutePath, filename: path.basename(absolutePath), stats };
+}
+
+function serveFile(req, res, absolutePath, filename, stats) {
   const ext = path.extname(filename).slice(1).toLowerCase();
   const mimeType = getMimeType(ext);
 
@@ -134,6 +154,11 @@ const handler = asyncHandler(async (req, res) => {
     }
   });
   stream.pipe(res);
+}
+
+const handler = asyncHandler(async (req, res) => {
+  const { absolutePath, filename, stats } = await resolveTarget(req);
+  serveFile(req, res, absolutePath, filename, stats);
 });
 
 router.get('/range-download', handler);
