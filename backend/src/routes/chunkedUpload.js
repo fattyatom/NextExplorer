@@ -68,7 +68,7 @@ router.post(
 
     const userId = req.user?.id || req.guestSession?.id || null;
 
-    activeUploads.set(uploadId, {
+    const upload = {
       userId,
       tempPath,
       destinationPath,
@@ -78,6 +78,17 @@ router.post(
       totalSize,
       bytesReceived: 0,
       lastActivity: Date.now(),
+    };
+    activeUploads.set(uploadId, upload);
+
+    // If the client disconnects before receiving the uploadId,
+    // it cannot call the cancel endpoint. Clean up immediately.
+    res.on('close', () => {
+      if (!res.writableFinished && activeUploads.has(uploadId)) {
+        fs.rm(upload.tempPath, { force: true }).catch(() => {});
+        activeUploads.delete(uploadId);
+        logger.info({ uploadId }, 'Cleaned up orphaned upload (client disconnected during init)');
+      }
     });
 
     logger.info({ uploadId, filename, totalSize }, 'Chunked upload initialized');

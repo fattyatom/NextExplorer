@@ -125,6 +125,7 @@ export async function chunkedUpload(file, uploadTo, relativePath, onProgress, si
   checkAborted(signal);
 
   const { uploadId } = await initUpload(file, uploadTo, relativePath, signal);
+  let completed = false;
 
   try {
     for (const { start, end } of iterateChunks(file.size, CHUNK_SIZE)) {
@@ -132,11 +133,12 @@ export async function chunkedUpload(file, uploadTo, relativePath, onProgress, si
       await uploadChunk(uploadId, file, start, end, file.size, signal, onProgress);
     }
 
-    return await completeUpload(uploadId, signal);
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      await cancelUpload(uploadId);
+    const result = await completeUpload(uploadId, signal);
+    completed = true;
+    return result;
+  } finally {
+    if (!completed) {
+      cancelUpload(uploadId);
     }
-    throw err;
   }
 }
