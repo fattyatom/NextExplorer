@@ -13,7 +13,7 @@ const supportsFileSystemAccess =
 function buildRangeUrl(filePath) {
   const normalized = normalizePath(filePath);
   const params = new URLSearchParams({ path: normalized });
-  return buildUrl(`/api/files/range-download?${params.toString()}`);
+  return buildUrl(`/api/range-download?${params.toString()}`);
 }
 
 async function fetchFileSize(url, signal) {
