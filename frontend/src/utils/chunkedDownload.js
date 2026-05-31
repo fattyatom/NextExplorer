@@ -176,11 +176,20 @@ export async function download({ path, downloadId, filename, size, onProgress, s
   const fileSize = size || (await fetchFileSize(url, signal));
 
   if (fileSize > CHUNKED_TRANSFER_THRESHOLD) {
-    if (supportsFileSystemAccess) {
-      await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal);
-    } else {
-      await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
+    // showSaveFilePicker requires a live user gesture. Prepared downloads
+    // (downloadId) always lose the gesture during the async prepare step,
+    // so skip it for those. Also catch SecurityError for edge cases where
+    // the gesture expired (slow network, permissions policy, etc.).
+    if (supportsFileSystemAccess && !downloadId) {
+      try {
+        await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal);
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        if (err.name !== 'SecurityError') throw err;
+      }
     }
+    await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
     return;
   }
 
