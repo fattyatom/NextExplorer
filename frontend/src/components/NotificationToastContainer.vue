@@ -11,8 +11,8 @@ const transferStore = useTransferStore();
 const { activeToasts } = storeToRefs(notificationsStore);
 const { dismissToast } = notificationsStore;
 
-const activeTransferToasts = computed(() =>
-  Array.from(transferStore.transfers.values()).filter((t) => t.status === 'active')
+const transferToasts = computed(() =>
+  Array.from(transferStore.transfers.values())
 );
 </script>
 
@@ -32,10 +32,11 @@ const activeTransferToasts = computed(() =>
         leave-to-class="opacity-0"
       >
         <TransferToast
-          v-for="transfer in activeTransferToasts"
+          v-for="transfer in transferToasts"
           :key="'t-' + transfer.id"
           v-bind="transfer"
           @cancel="transferStore.cancel"
+          @dismiss="transferStore.remove"
         />
         <NotificationToast
           v-for="notification in activeToasts"

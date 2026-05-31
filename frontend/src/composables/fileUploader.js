@@ -71,7 +71,6 @@ export function useFileUploader() {
     } catch (err) {
       if (err.name === 'AbortError') return;
       transferStore.fail(id, err.message || 'Upload failed');
-      notifyErrorOnce(err.message || 'Chunked upload failed');
     }
   }
 
@@ -180,26 +179,15 @@ export function useFileUploader() {
         const msg = (nested && typeof nested === 'object' ? nested.message : nested) || error?.message || 'Upload failed';
         transferStore.fail(tid, msg);
         uppyToTransferId.delete(file?.id);
+      } else {
+        const body = response?.body;
+        const nested = body && typeof body === 'object' ? body?.error : null;
+        const heading =
+          (nested && typeof nested === 'object' ? nested.message : nested) ||
+          error?.message ||
+          'Upload failed';
+        notifyErrorOnce(heading);
       }
-
-      const body = response?.body;
-      const nested = body && typeof body === 'object' ? body?.error : null;
-      const nestedObj = nested && typeof nested === 'object' ? nested : null;
-
-      const heading =
-        nestedObj?.message ||
-        (typeof nested === 'string' ? nested : '') ||
-        error?.message ||
-        'Upload failed';
-
-      notifyErrorOnce(heading, {
-        body:
-          nestedObj?.details !== undefined && nestedObj?.details !== null
-            ? JSON.stringify(nestedObj.details)
-            : '',
-        requestId: nestedObj?.requestId || null,
-        statusCode: nestedObj?.statusCode ?? response?.status,
-      });
       if (fileStore.currentPath) {
         fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
       }

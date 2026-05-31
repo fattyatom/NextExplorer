@@ -3,6 +3,8 @@ import {
   XMarkIcon,
   ArrowUpTrayIcon,
   ArrowDownTrayIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
 } from '@heroicons/vue/24/outline';
 import { computed } from 'vue';
 import { formatBytes } from '@/utils';
@@ -18,13 +20,29 @@ const props = defineProps({
   error: { type: String, default: null },
 });
 
-const emit = defineEmits(['cancel']);
+const emit = defineEmits(['cancel', 'dismiss']);
 
-const directionIcon = computed(() =>
-  props.direction === 'upload' ? ArrowUpTrayIcon : ArrowDownTrayIcon
-);
+const icon = computed(() => {
+  if (props.status === 'complete') return CheckCircleIcon;
+  if (props.status === 'error') return ExclamationCircleIcon;
+  return props.direction === 'upload' ? ArrowUpTrayIcon : ArrowDownTrayIcon;
+});
+
+const iconClass = computed(() => {
+  if (props.status === 'complete') return 'text-green-500 dark:text-green-400';
+  if (props.status === 'error') return 'text-red-500 dark:text-red-400';
+  return 'text-indigo-500 dark:text-indigo-400';
+});
+
+const heading = computed(() => {
+  const verb = props.direction === 'upload' ? 'Upload' : 'Download';
+  if (props.status === 'complete') return `${props.filename} ${verb.toLowerCase()}ed`;
+  if (props.status === 'error') return `${verb} failed`;
+  return `${verb === 'Upload' ? 'Uploading' : 'Downloading'} ${props.filename}`;
+});
 
 const sizeText = computed(() => {
+  if (props.status === 'complete') return formatBytes(props.totalBytes);
   if (props.totalBytes > 0) {
     return `${formatBytes(props.transferredBytes)} / ${formatBytes(props.totalBytes)}`;
   }
@@ -32,6 +50,7 @@ const sizeText = computed(() => {
 });
 
 const barClass = computed(() => {
+  if (props.status === 'complete') return 'tf-bar--complete';
   if (props.status === 'error') return 'tf-bar--error';
   return 'tf-bar--active tf-bar--animated';
 });
@@ -46,22 +65,23 @@ const indeterminate = computed(() => props.status === 'active' && props.totalByt
     <div class="p-4">
       <div class="flex items-start">
         <div class="shrink-0">
-          <component
-            :is="directionIcon"
-            class="h-6 w-6 text-indigo-500 dark:text-indigo-400"
-          />
+          <component :is="icon" class="h-6 w-6" :class="iconClass" />
         </div>
 
         <div class="ml-3 w-0 flex-1 pt-0.5">
           <p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate" :title="filename">
-            {{ direction === 'upload' ? 'Uploading' : 'Downloading' }} {{ filename }}
+            {{ heading }}
           </p>
-          <p class="mt-0.5 text-xs tabular-nums text-gray-500 dark:text-gray-400">
-            <template v-if="totalBytes > 0">{{ percentage }}% &middot; {{ sizeText }}</template>
+          <p v-if="status === 'error' && error" class="mt-0.5 text-xs text-red-500 dark:text-red-400">
+            {{ error }}
+          </p>
+          <p v-else class="mt-0.5 text-xs tabular-nums text-gray-500 dark:text-gray-400">
+            <template v-if="status === 'complete'">{{ sizeText }}</template>
+            <template v-else-if="totalBytes > 0">{{ percentage }}% &middot; {{ sizeText }}</template>
             <template v-else>{{ sizeText }}</template>
           </p>
 
-          <div class="mt-2 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
+          <div v-if="status !== 'error'" class="mt-2 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
             <div
               class="h-full rounded-full tf-bar transition-all duration-300"
               :class="[barClass, { 'tf-bar--indeterminate': indeterminate }]"
@@ -72,12 +92,22 @@ const indeterminate = computed(() => props.status === 'active' && props.totalByt
 
         <div class="ml-4 flex shrink-0">
           <button
+            v-if="status === 'active'"
             type="button"
             @click="emit('cancel', id)"
             class="inline-flex rounded-md text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 dark:focus:ring-offset-zinc-800"
             :title="$t('common.cancel')"
           >
             <span class="sr-only">Cancel transfer</span>
+            <XMarkIcon class="h-5 w-5" />
+          </button>
+          <button
+            v-else
+            type="button"
+            @click="emit('dismiss', id)"
+            class="inline-flex rounded-md text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 dark:focus:ring-offset-zinc-800"
+          >
+            <span class="sr-only">Dismiss</span>
             <XMarkIcon class="h-5 w-5" />
           </button>
         </div>
@@ -93,6 +123,9 @@ const indeterminate = computed(() => props.status === 'active' && props.totalByt
 }
 .tf-bar--active {
   background: linear-gradient(90deg, #4f46e5, #6366f1, #818cf8);
+}
+.tf-bar--complete {
+  background: linear-gradient(90deg, #10b981, #34d399);
 }
 .tf-bar--error {
   background: linear-gradient(90deg, #ef4444, #f87171);

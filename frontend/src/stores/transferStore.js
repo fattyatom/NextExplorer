@@ -2,12 +2,15 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useNotificationsStore } from './notifications';
 
+const COMPLETED_LINGER_MS = 2000;
+
 export const useTransferStore = defineStore('transfer', () => {
   const transfers = ref(new Map());
+  const lingerTimers = new Map();
 
   const activeTransfers = computed(() =>
     Array.from(transfers.value.values()).filter(
-      (t) => t.status === 'active' || t.status === 'complete'
+      (t) => t.status === 'active' || t.status === 'complete' || t.status === 'error'
     )
   );
 
@@ -45,6 +48,15 @@ export const useTransferStore = defineStore('transfer', () => {
     return `transfer-${nextId++}-${Date.now().toString(36)}`;
   }
 
+  function scheduleRemoval(id) {
+    if (lingerTimers.has(id)) clearTimeout(lingerTimers.get(id));
+    lingerTimers.set(id, setTimeout(() => {
+      lingerTimers.delete(id);
+      transfers.value.delete(id);
+      transfers.value = new Map(transfers.value);
+    }, COMPLETED_LINGER_MS));
+  }
+
   function add(direction, filename, totalBytes) {
     const id = generateId();
     const abortController = new AbortController();
@@ -75,6 +87,10 @@ export const useTransferStore = defineStore('transfer', () => {
   function complete(id) {
     const t = transfers.value.get(id);
     if (!t) return;
+    t.status = 'complete';
+    t.percentage = 100;
+    t.transferredBytes = t.totalBytes;
+    transfers.value = new Map(transfers.value);
 
     const notifications = useNotificationsStore();
     const verb = t.direction === 'upload' ? 'uploaded' : 'downloaded';
@@ -84,8 +100,7 @@ export const useTransferStore = defineStore('transfer', () => {
       durationMs: 3000,
     });
 
-    transfers.value.delete(id);
-    transfers.value = new Map(transfers.value);
+    scheduleRemoval(id);
   }
 
   function fail(id, error) {
@@ -93,6 +108,10 @@ export const useTransferStore = defineStore('transfer', () => {
     if (!t) return;
 
     const msg = typeof error === 'string' ? error : error?.message || 'Transfer failed';
+    t.status = 'error';
+    t.error = msg;
+    transfers.value = new Map(transfers.value);
+
     const notifications = useNotificationsStore();
     const verb = t.direction === 'upload' ? 'Upload' : 'Download';
     notifications.addNotification({
@@ -102,8 +121,7 @@ export const useTransferStore = defineStore('transfer', () => {
       durationMs: 5000,
     });
 
-    transfers.value.delete(id);
-    transfers.value = new Map(transfers.value);
+    scheduleRemoval(id);
   }
 
   function cancel(id) {
@@ -114,6 +132,10 @@ export const useTransferStore = defineStore('transfer', () => {
   }
 
   function remove(id) {
+    if (lingerTimers.has(id)) {
+      clearTimeout(lingerTimers.get(id));
+      lingerTimers.delete(id);
+    }
     transfers.value.delete(id);
     transfers.value = new Map(transfers.value);
   }
@@ -121,6 +143,10 @@ export const useTransferStore = defineStore('transfer', () => {
   function clearCompleted() {
     for (const [id, t] of transfers.value) {
       if (t.status === 'complete' || t.status === 'error') {
+        if (lingerTimers.has(id)) {
+          clearTimeout(lingerTimers.get(id));
+          lingerTimers.delete(id);
+        }
         transfers.value.delete(id);
       }
     }

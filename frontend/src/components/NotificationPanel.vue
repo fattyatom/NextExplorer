@@ -7,6 +7,8 @@ import {
   XMarkIcon,
   ArrowUpTrayIcon,
   ArrowDownTrayIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
 } from '@heroicons/vue/24/outline';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useTransferStore } from '@/stores/transferStore';
@@ -20,7 +22,7 @@ const { closePanel, clearAll, toggleFilter, copyNotification, removeNotification
   notificationsStore;
 
 const activeTransfers = computed(() =>
-  Array.from(transferStore.transfers.values()).filter((t) => t.status === 'active')
+  Array.from(transferStore.transfers.values())
 );
 
 // Filter chip data
@@ -59,6 +61,7 @@ function handleCopy(id) {
 }
 
 function transferBarClass(t) {
+  if (t.status === 'complete') return 'tf-bar--complete';
   if (t.status === 'error') return 'tf-bar--error';
   return 'tf-bar--active tf-bar--animated';
 }
@@ -150,32 +153,40 @@ onClickOutside(panelRef, () => {
                       <!-- Active transfers -->
                       <div v-if="activeTransfers.length > 0" class="mb-4">
                         <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
-                          Active transfers
+                          Transfers
                         </h3>
                         <div class="space-y-3">
                           <div
                             v-for="t in activeTransfers"
                             :key="'t-' + t.id"
-                            class="rounded-lg border border-indigo-200 dark:border-indigo-900/50 p-4 bg-white dark:bg-zinc-800"
+                            class="rounded-lg border p-4 bg-white dark:bg-zinc-800"
+                            :class="t.status === 'error' ? 'border-red-200 dark:border-red-900/50' : t.status === 'complete' ? 'border-green-200 dark:border-green-900/50' : 'border-indigo-200 dark:border-indigo-900/50'"
                           >
                             <div class="flex items-start gap-3">
                               <component
-                                :is="t.direction === 'upload' ? ArrowUpTrayIcon : ArrowDownTrayIcon"
-                                class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400"
+                                :is="t.status === 'complete' ? CheckCircleIcon : t.status === 'error' ? ExclamationCircleIcon : t.direction === 'upload' ? ArrowUpTrayIcon : ArrowDownTrayIcon"
+                                class="h-5 w-5 shrink-0"
+                                :class="t.status === 'complete' ? 'text-green-500 dark:text-green-400' : t.status === 'error' ? 'text-red-500 dark:text-red-400' : 'text-indigo-500 dark:text-indigo-400'"
                               />
                               <div class="flex-1 min-w-0">
                                 <p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                   {{ t.filename }}
                                 </p>
-                                <p class="text-xs tabular-nums text-gray-500 dark:text-gray-400 mt-0.5">
-                                  <template v-if="t.totalBytes > 0">
+                                <p v-if="t.status === 'error'" class="text-xs text-red-500 dark:text-red-400 mt-0.5">
+                                  {{ t.error }}
+                                </p>
+                                <p v-else class="text-xs tabular-nums text-gray-500 dark:text-gray-400 mt-0.5">
+                                  <template v-if="t.status === 'complete'">
+                                    {{ formatBytes(t.totalBytes) }}
+                                  </template>
+                                  <template v-else-if="t.totalBytes > 0">
                                     {{ t.percentage }}% &middot; {{ formatBytes(t.transferredBytes) }} / {{ formatBytes(t.totalBytes) }}
                                   </template>
                                   <template v-else>
                                     {{ formatBytes(t.transferredBytes) }}
                                   </template>
                                 </p>
-                                <div class="mt-2 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
+                                <div v-if="t.status !== 'error'" class="mt-2 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
                                   <div
                                     class="h-full rounded-full tf-bar transition-all duration-300"
                                     :class="[transferBarClass(t), { 'tf-bar--indeterminate': t.status === 'active' && t.totalBytes <= 0 }]"
@@ -184,8 +195,17 @@ onClickOutside(panelRef, () => {
                                 </div>
                               </div>
                               <button
+                                v-if="t.status === 'active'"
                                 @click="transferStore.cancel(t.id)"
                                 title="Cancel"
+                                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0"
+                              >
+                                <XMarkIcon class="h-4 w-4" />
+                              </button>
+                              <button
+                                v-else
+                                @click="transferStore.remove(t.id)"
+                                title="Dismiss"
                                 class="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0"
                               >
                                 <XMarkIcon class="h-4 w-4" />
@@ -230,6 +250,9 @@ onClickOutside(panelRef, () => {
 }
 .tf-bar--active {
   background: linear-gradient(90deg, #4f46e5, #6366f1, #818cf8);
+}
+.tf-bar--complete {
+  background: linear-gradient(90deg, #10b981, #34d399);
 }
 .tf-bar--error {
   background: linear-gradient(90deg, #ef4444, #f87171);
