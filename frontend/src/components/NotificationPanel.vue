@@ -175,6 +175,9 @@ onClickOutside(panelRef, () => {
                                 <p v-if="t.status === 'error'" class="text-xs text-red-500 dark:text-red-400 mt-0.5">
                                   {{ t.error }}
                                 </p>
+                                <p v-else-if="t.statusText" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                  {{ t.statusText }}
+                                </p>
                                 <p v-else class="text-xs tabular-nums text-gray-500 dark:text-gray-400 mt-0.5">
                                   <template v-if="t.status === 'complete'">
                                     {{ formatBytes(t.totalBytes) }}

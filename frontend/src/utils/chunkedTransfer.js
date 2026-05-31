@@ -16,6 +16,7 @@ export async function withRetry(fn, retries = MAX_RETRIES, delayMs = RETRY_DELAY
     try {
       return await fn(attempt);
     } catch (err) {
+      if (err.name === 'AbortError') throw err;
       if (attempt === retries) throw err;
       await new Promise((r) => setTimeout(r, delayMs * attempt));
     }

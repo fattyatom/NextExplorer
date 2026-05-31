@@ -57,7 +57,7 @@ export const useTransferStore = defineStore('transfer', () => {
     }, COMPLETED_LINGER_MS));
   }
 
-  function add(direction, filename, totalBytes) {
+  function add(direction, filename, totalBytes, statusText) {
     const id = generateId();
     const abortController = new AbortController();
     transfers.value.set(id, {
@@ -68,6 +68,7 @@ export const useTransferStore = defineStore('transfer', () => {
       transferredBytes: 0,
       percentage: 0,
       status: 'active',
+      statusText: statusText || null,
       error: null,
       abortController,
     });
@@ -81,6 +82,7 @@ export const useTransferStore = defineStore('transfer', () => {
     t.transferredBytes = transferredBytes;
     if (totalBytes !== undefined) t.totalBytes = totalBytes;
     t.percentage = t.totalBytes > 0 ? Math.round((transferredBytes / t.totalBytes) * 100) : 0;
+    if (t.statusText && transferredBytes > 0) t.statusText = null;
     transfers.value = new Map(transfers.value);
   }
 

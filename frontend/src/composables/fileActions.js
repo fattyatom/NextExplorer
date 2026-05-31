@@ -111,9 +111,9 @@ export function useFileActions() {
     await fileStore.del();
   };
 
-  const trackedDownload = async (name, size, downloadFn) => {
+  const trackedDownload = async (name, size, downloadFn, statusText) => {
     const store = useTransferStore();
-    const id = store.add('download', name, size || 0);
+    const id = store.add('download', name, size || 0, statusText);
     try {
       const t = store.transfers.get(id);
       await downloadFn(
@@ -170,7 +170,7 @@ export function useFileActions() {
         onProgress,
         signal,
       });
-    });
+    }, 'Preparing zip…');
   };
 
   return {

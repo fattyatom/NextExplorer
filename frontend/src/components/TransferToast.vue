@@ -17,6 +17,7 @@ const props = defineProps({
   transferredBytes: { type: Number, default: 0 },
   percentage: { type: Number, default: 0 },
   status: { type: String, default: 'active' },
+  statusText: { type: String, default: null },
   error: { type: String, default: null },
 });
 
@@ -41,10 +42,11 @@ const heading = computed(() => {
   return `${verb === 'Upload' ? 'Uploading' : 'Downloading'} ${props.filename}`;
 });
 
-const sizeText = computed(() => {
+const subtitle = computed(() => {
+  if (props.statusText) return props.statusText;
   if (props.status === 'complete') return formatBytes(props.totalBytes);
   if (props.totalBytes > 0) {
-    return `${formatBytes(props.transferredBytes)} / ${formatBytes(props.totalBytes)}`;
+    return `${props.percentage}% · ${formatBytes(props.transferredBytes)} / ${formatBytes(props.totalBytes)}`;
   }
   return formatBytes(props.transferredBytes);
 });
@@ -76,9 +78,7 @@ const indeterminate = computed(() => props.status === 'active' && props.totalByt
             {{ error }}
           </p>
           <p v-else class="mt-0.5 text-xs tabular-nums text-gray-500 dark:text-gray-400">
-            <template v-if="status === 'complete'">{{ sizeText }}</template>
-            <template v-else-if="totalBytes > 0">{{ percentage }}% &middot; {{ sizeText }}</template>
-            <template v-else>{{ sizeText }}</template>
+            {{ subtitle }}
           </p>
 
           <div v-if="status !== 'error'" class="mt-2 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
