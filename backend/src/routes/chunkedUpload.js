@@ -192,4 +192,26 @@ router.post(
   })
 );
 
+router.delete(
+  '/chunked-upload/:uploadId',
+  asyncHandler(async (req, res) => {
+    const { uploadId } = req.params;
+    const upload = activeUploads.get(uploadId);
+    if (!upload) {
+      res.json({ cancelled: false });
+      return;
+    }
+
+    const userId = req.user?.id || req.guestSession?.id || null;
+    if (upload.userId !== userId) {
+      throw new ForbiddenError('Upload session belongs to a different user.');
+    }
+
+    await fs.rm(upload.tempPath, { force: true }).catch(() => {});
+    activeUploads.delete(uploadId);
+    logger.info({ uploadId }, 'Chunked upload cancelled');
+    res.json({ cancelled: true });
+  })
+);
+
 module.exports = router;

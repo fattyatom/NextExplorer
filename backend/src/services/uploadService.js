@@ -101,6 +101,10 @@ CustomStorage.prototype._handleFile = function handleFile(req, file, cb) {
       outStream.on('error', handleStreamError);
 
       outStream.on('finish', async () => {
+        if (req.destroyed) {
+          await cleanupTemporary();
+          return;
+        }
         try {
           await fs.rename(temporaryPath, finalPath);
           cb(null, {

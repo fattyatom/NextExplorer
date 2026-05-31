@@ -109,15 +109,34 @@ async function completeUpload(uploadId, signal) {
   return res.json();
 }
 
+async function cancelUpload(uploadId) {
+  try {
+    await fetch(buildUrl(`/api/chunked-upload/${uploadId}`), {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: getCommonHeaders(),
+    });
+  } catch {
+    // best-effort cleanup
+  }
+}
+
 export async function chunkedUpload(file, uploadTo, relativePath, onProgress, signal) {
   checkAborted(signal);
 
   const { uploadId } = await initUpload(file, uploadTo, relativePath, signal);
 
-  for (const { start, end } of iterateChunks(file.size, CHUNK_SIZE)) {
-    checkAborted(signal);
-    await uploadChunk(uploadId, file, start, end, file.size, signal, onProgress);
-  }
+  try {
+    for (const { start, end } of iterateChunks(file.size, CHUNK_SIZE)) {
+      checkAborted(signal);
+      await uploadChunk(uploadId, file, start, end, file.size, signal, onProgress);
+    }
 
-  return completeUpload(uploadId, signal);
+    return await completeUpload(uploadId, signal);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      await cancelUpload(uploadId);
+    }
+    throw err;
+  }
 }
