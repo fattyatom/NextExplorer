@@ -1,7 +1,10 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { getPreviewUrl, normalizePath, downloadItems, fetchFileContent } from '@/api';
+import { getPreviewUrl, normalizePath, fetchFileContent } from '@/api';
 import { useFileStore } from '@/stores/fileStore';
+import { useTransferStore } from '@/stores/transferStore';
+import { chunkedDownload, streamedDownload } from '@/utils/chunkedDownload';
+import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
 import router from '@/router';
 
 export const usePreviewManager = defineStore('preview-manager', () => {
@@ -50,16 +53,26 @@ export const usePreviewManager = defineStore('preview-manager', () => {
       const path = getFullPath(item);
       if (!path) return;
 
-      const response = await downloadItems([path]);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const transferStore = useTransferStore();
+      const size = item.size || 0;
+      const filename = item.name || 'download';
+      const id = transferStore.add('download', filename, size);
 
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = item.name || 'download';
-      link.click();
+      try {
+        const t = transferStore.transfers.get(id);
+        const onProgress = (dl, total) => transferStore.updateProgress(id, dl, total);
+        const signal = t?.abortController?.signal;
 
-      URL.revokeObjectURL(url);
+        if (size > CHUNKED_TRANSFER_THRESHOLD) {
+          await chunkedDownload(path, filename, size, onProgress, signal);
+        } else {
+          await streamedDownload(path, filename, size, onProgress, signal);
+        }
+        transferStore.complete(id);
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        transferStore.fail(id, err.message || 'Download failed');
+      }
     },
     close: () => close(),
   });

@@ -27,26 +27,71 @@ async function initUpload(file, uploadTo, relativePath, signal) {
   return res.json();
 }
 
-async function uploadChunk(uploadId, file, start, end, totalSize, signal) {
+function uploadChunkXHR(uploadId, chunkBlob, start, end, totalSize, signal, onChunkProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PATCH', buildUrl(`/api/chunked-upload/${uploadId}`));
+    xhr.withCredentials = true;
+
+    const headers = getCommonHeaders();
+    for (const [k, v] of Object.entries(headers)) {
+      xhr.setRequestHeader(k, v);
+    }
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+
+    const onAbort = () => xhr.abort();
+    if (signal) {
+      if (signal.aborted) {
+        reject(new DOMException('Transfer cancelled', 'AbortError'));
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onChunkProgress?.(start + e.loaded, totalSize);
+      }
+    };
+
+    xhr.onload = () => {
+      signal?.removeEventListener('abort', onAbort);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          resolve({});
+        }
+      } else {
+        let msg = `Chunk upload failed: ${xhr.status}`;
+        try {
+          const body = JSON.parse(xhr.responseText);
+          msg = body?.error?.message || msg;
+        } catch { /* ignore */ }
+        reject(new Error(msg));
+      }
+    };
+
+    xhr.onerror = () => {
+      signal?.removeEventListener('abort', onAbort);
+      reject(new Error('Network error during chunk upload'));
+    };
+
+    xhr.onabort = () => {
+      signal?.removeEventListener('abort', onAbort);
+      reject(new DOMException('Transfer cancelled', 'AbortError'));
+    };
+
+    xhr.send(chunkBlob);
+  });
+}
+
+async function uploadChunk(uploadId, file, start, end, totalSize, signal, onChunkProgress) {
   const chunkBlob = file.slice(start, end + 1);
 
   return withRetry(async () => {
-    const res = await fetch(buildUrl(`/api/chunked-upload/${uploadId}`), {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: {
-        ...getCommonHeaders(),
-        'Content-Type': 'application/octet-stream',
-        'Content-Range': `bytes ${start}-${end}/${totalSize}`,
-      },
-      body: chunkBlob,
-      signal,
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body?.error?.message || `Chunk upload failed: ${res.status}`);
-    }
-    return res.json();
+    return uploadChunkXHR(uploadId, chunkBlob, start, end, totalSize, signal, onChunkProgress);
   });
 }
 
@@ -68,13 +113,10 @@ export async function chunkedUpload(file, uploadTo, relativePath, onProgress, si
   checkAborted(signal);
 
   const { uploadId } = await initUpload(file, uploadTo, relativePath, signal);
-  let uploaded = 0;
 
   for (const { start, end } of iterateChunks(file.size, CHUNK_SIZE)) {
     checkAborted(signal);
-    await uploadChunk(uploadId, file, start, end, file.size, signal);
-    uploaded += end - start + 1;
-    onProgress?.(uploaded, file.size);
+    await uploadChunk(uploadId, file, start, end, file.size, signal, onProgress);
   }
 
   return completeUpload(uploadId, signal);
