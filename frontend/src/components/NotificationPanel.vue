@@ -1,16 +1,27 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { onClickOutside } from '@vueuse/core';
 import { TransitionRoot, TransitionChild } from '@headlessui/vue';
-import { XMarkIcon } from '@heroicons/vue/24/outline';
+import {
+  XMarkIcon,
+  ArrowUpTrayIcon,
+  ArrowDownTrayIcon,
+} from '@heroicons/vue/24/outline';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useTransferStore } from '@/stores/transferStore';
+import { formatBytes } from '@/utils';
 import NotificationItem from './NotificationItem.vue';
 
 const notificationsStore = useNotificationsStore();
+const transferStore = useTransferStore();
 const { isPanelOpen, filteredNotifications, filters } = storeToRefs(notificationsStore);
 const { closePanel, clearAll, toggleFilter, copyNotification, removeNotification } =
   notificationsStore;
+
+const activeTransfers = computed(() =>
+  Array.from(transferStore.transfers.values()).filter((t) => t.status === 'active')
+);
 
 // Filter chip data
 const filterTypes = [
@@ -45,6 +56,11 @@ const panelRef = ref(null);
 
 function handleCopy(id) {
   copyNotification(id);
+}
+
+function transferBarClass(t) {
+  if (t.status === 'error') return 'tf-bar--error';
+  return 'tf-bar--active tf-bar--animated';
 }
 
 // Setup click outside listener with VueUse
@@ -129,15 +145,64 @@ onClickOutside(panelRef, () => {
                       </div>
                     </div>
 
-                    <!-- Notification list -->
+                    <!-- Content -->
                     <div class="flex-1 overflow-y-auto px-4 py-4">
-                      <div v-if="filteredNotifications.length === 0" class="text-center py-12">
+                      <!-- Active transfers -->
+                      <div v-if="activeTransfers.length > 0" class="mb-4">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
+                          Active transfers
+                        </h3>
+                        <div class="space-y-3">
+                          <div
+                            v-for="t in activeTransfers"
+                            :key="'t-' + t.id"
+                            class="rounded-lg border border-indigo-200 dark:border-indigo-900/50 p-4 bg-white dark:bg-zinc-800"
+                          >
+                            <div class="flex items-start gap-3">
+                              <component
+                                :is="t.direction === 'upload' ? ArrowUpTrayIcon : ArrowDownTrayIcon"
+                                class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400"
+                              />
+                              <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                  {{ t.filename }}
+                                </p>
+                                <p class="text-xs tabular-nums text-gray-500 dark:text-gray-400 mt-0.5">
+                                  <template v-if="t.totalBytes > 0">
+                                    {{ t.percentage }}% &middot; {{ formatBytes(t.transferredBytes) }} / {{ formatBytes(t.totalBytes) }}
+                                  </template>
+                                  <template v-else>
+                                    {{ formatBytes(t.transferredBytes) }}
+                                  </template>
+                                </p>
+                                <div class="mt-2 w-full h-1.5 rounded-full overflow-hidden bg-zinc-100 dark:bg-zinc-700">
+                                  <div
+                                    class="h-full rounded-full tf-bar transition-all duration-300"
+                                    :class="[transferBarClass(t), { 'tf-bar--indeterminate': t.status === 'active' && t.totalBytes <= 0 }]"
+                                    :style="`width: ${t.totalBytes > 0 ? t.percentage : 100}%`"
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                @click="transferStore.cancel(t.id)"
+                                title="Cancel"
+                                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-zinc-700 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 shrink-0"
+                              >
+                                <XMarkIcon class="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- Notifications -->
+                      <div v-if="filteredNotifications.length === 0 && activeTransfers.length === 0" class="text-center py-12">
                         <p class="text-gray-500 dark:text-gray-400">
                           {{ $t('notifications.empty') }}
                         </p>
                       </div>
 
-                      <div v-else class="space-y-3">
+                      <div v-if="filteredNotifications.length > 0" class="space-y-3">
                         <NotificationItem
                           v-for="notification in filteredNotifications"
                           :key="notification.id"
@@ -157,3 +222,40 @@ onClickOutside(panelRef, () => {
     </TransitionRoot>
   </Teleport>
 </template>
+
+<style scoped>
+.tf-bar {
+  position: relative;
+  overflow: hidden;
+}
+.tf-bar--active {
+  background: linear-gradient(90deg, #4f46e5, #6366f1, #818cf8);
+}
+.tf-bar--error {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+.tf-bar--animated::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: tfShimmer 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tf-bar--animated::after { animation: none; }
+}
+@keyframes tfShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.tf-bar--indeterminate {
+  animation: tfPulse 1.5s ease-in-out infinite;
+}
+@keyframes tfPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tf-bar--indeterminate { animation: none; }
+}
+</style>

@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { useNotificationsStore } from './notifications';
 
 export const useTransferStore = defineStore('transfer', () => {
   const transfers = ref(new Map());
-  const panelCollapsed = ref(false);
 
   const activeTransfers = computed(() =>
     Array.from(transfers.value.values()).filter(
@@ -60,7 +60,6 @@ export const useTransferStore = defineStore('transfer', () => {
       abortController,
     });
     transfers.value = new Map(transfers.value);
-    panelCollapsed.value = false;
     return id;
   }
 
@@ -76,17 +75,34 @@ export const useTransferStore = defineStore('transfer', () => {
   function complete(id) {
     const t = transfers.value.get(id);
     if (!t) return;
-    t.status = 'complete';
-    t.percentage = 100;
-    t.transferredBytes = t.totalBytes;
+
+    const notifications = useNotificationsStore();
+    const verb = t.direction === 'upload' ? 'uploaded' : 'downloaded';
+    notifications.addNotification({
+      type: 'success',
+      heading: `${t.filename} ${verb}`,
+      durationMs: 3000,
+    });
+
+    transfers.value.delete(id);
     transfers.value = new Map(transfers.value);
   }
 
   function fail(id, error) {
     const t = transfers.value.get(id);
     if (!t) return;
-    t.status = 'error';
-    t.error = typeof error === 'string' ? error : error?.message || 'Transfer failed';
+
+    const msg = typeof error === 'string' ? error : error?.message || 'Transfer failed';
+    const notifications = useNotificationsStore();
+    const verb = t.direction === 'upload' ? 'Upload' : 'Download';
+    notifications.addNotification({
+      type: 'error',
+      heading: `${verb} failed: ${t.filename}`,
+      body: msg,
+      durationMs: 5000,
+    });
+
+    transfers.value.delete(id);
     transfers.value = new Map(transfers.value);
   }
 
@@ -111,8 +127,15 @@ export const useTransferStore = defineStore('transfer', () => {
     transfers.value = new Map(transfers.value);
   }
 
-  function toggleCollapse() {
-    panelCollapsed.value = !panelCollapsed.value;
+  function onBeforeUnload(e) {
+    if (hasActive.value) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', onBeforeUnload);
   }
 
   return {
@@ -122,7 +145,6 @@ export const useTransferStore = defineStore('transfer', () => {
     visible,
     overallProgress,
     counts,
-    panelCollapsed,
     add,
     updateProgress,
     complete,
@@ -130,6 +152,5 @@ export const useTransferStore = defineStore('transfer', () => {
     cancel,
     remove,
     clearCompleted,
-    toggleCollapse,
   };
 });
