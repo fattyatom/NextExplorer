@@ -176,6 +176,11 @@ export function useFileUploader() {
         uppyToTransferId.delete(file?.id);
       }
       fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
+      try {
+        uppy.removeFile(file.id);
+      } catch (_) {
+        /* noop */
+      }
     });
 
     uppy.on('upload-error', (file, error, response) => {
@@ -215,6 +220,25 @@ export function useFileUploader() {
       type: file.type,
       data: file,
     };
+  }
+
+  function addFileWithDedup(fileObj) {
+    try {
+      uppy.addFile(fileObj);
+    } catch (_) {
+      const name = fileObj.name || '';
+      const dotIdx = name.lastIndexOf('.');
+      const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
+      const ext = dotIdx > 0 ? name.slice(dotIdx) : '';
+      for (let n = 1; n <= 99; n++) {
+        try {
+          uppy.addFile({ ...fileObj, name: `${base} (${n})${ext}` });
+          return;
+        } catch (_) {
+          continue;
+        }
+      }
+    }
   }
 
   function setDialogAttributes(options) {
@@ -258,7 +282,7 @@ export function useFileUploader() {
         );
 
         files.value = selectedFiles.map((file) => uppyFile(file));
-        files.value.forEach((file) => uppy.addFile(file));
+        files.value.forEach((file) => addFileWithDedup(file));
 
         e.target.value = '';
         resolve();
