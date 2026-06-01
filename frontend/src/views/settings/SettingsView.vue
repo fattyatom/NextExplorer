@@ -13,6 +13,7 @@ import {
   KeyIcon,
   UsersIcon,
   UserCircleIcon,
+  ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline';
 
 const router = useRouter();
@@ -80,6 +81,12 @@ const adminCategories = [
     i18nKey: 'accessControl',
     name: 'Access Control',
     icon: KeyIcon,
+  },
+  {
+    key: 'transfers',
+    i18nKey: 'transfers',
+    name: 'Transfers',
+    icon: ArrowsRightLeftIcon,
   },
   {
     key: 'admin-users',

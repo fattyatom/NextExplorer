@@ -28,6 +28,11 @@ export const useAppSettings = defineStore('appSettings', () => {
   const systemSettings = ref({
     thumbnails: { enabled: true, size: 200, quality: 70 },
     access: { rules: [] },
+    chunkedTransfers: {
+      uploadEnabled: true,
+      downloadEnabled: true,
+      chunkSizeMB: 20,
+    },
   });
 
   // Computed state that combines all settings (for backward compatibility)
@@ -119,6 +124,15 @@ export const useAppSettings = defineStore('appSettings', () => {
         };
       }
 
+      if (s?.chunkedTransfers) {
+        systemSettings.value.chunkedTransfers = {
+          uploadEnabled: true,
+          downloadEnabled: true,
+          chunkSizeMB: 20,
+          ...s.chunkedTransfers,
+        };
+      }
+
       loaded.value = true;
     } catch (e) {
       // For non-admin users, 403 errors are expected for system settings
@@ -183,6 +197,15 @@ export const useAppSettings = defineStore('appSettings', () => {
       if (updated?.access) {
         systemSettings.value.access = {
           rules: Array.isArray(updated.access.rules) ? updated.access.rules : [],
+        };
+      }
+
+      if (updated?.chunkedTransfers) {
+        systemSettings.value.chunkedTransfers = {
+          uploadEnabled: true,
+          downloadEnabled: true,
+          chunkSizeMB: 20,
+          ...updated.chunkedTransfers,
         };
       }
 
