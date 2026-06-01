@@ -7,6 +7,7 @@ const express = require('express');
 const { normalizeRelativePath, findAvailableName } = require('../utils/pathUtils');
 const { ensureDir, pathExists } = require('../utils/fsUtils');
 const { ACTIONS, authorizeAndResolve } = require('../services/authorizationService');
+const { getChunkedTransferSettings } = require('../services/settingsService');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, ForbiddenError, NotFoundError } = require('../errors/AppError');
 const logger = require('../utils/logger');
@@ -32,6 +33,11 @@ setInterval(() => {
 router.post(
   '/chunked-upload/init',
   asyncHandler(async (req, res) => {
+    const { effective } = await getChunkedTransferSettings();
+    if (!effective.uploadEnabled) {
+      throw new ForbiddenError('Chunked uploads are disabled.');
+    }
+
     const { filename, totalSize, uploadTo, relativePath } = req.body || {};
 
     if (!filename || typeof filename !== 'string') {

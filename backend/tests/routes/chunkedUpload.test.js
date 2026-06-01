@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import express from 'express';
 import request from 'supertest';
-import { setupTestEnv, clearModuleCache } from '../helpers/env-test-utils.js';
+import { setupTestEnv, clearModuleCache, overrideEnv } from '../helpers/env-test-utils.js';
 
 let envContext;
 
@@ -13,6 +13,7 @@ beforeAll(async () => {
     modules: [
       'src/routes/chunkedUpload',
       'src/services/authorizationService',
+      'src/services/settingsService',
       'src/utils/pathUtils',
       'src/utils/fsUtils',
       'src/middleware/errorHandler',
@@ -398,6 +399,34 @@ describe('Chunked Upload Routes', () => {
       const app2 = buildApp({ user: otherUser });
       const res = await request(app2)
         .delete(`/api/chunked-upload/${initRes.body.uploadId}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('disabled guard', () => {
+    let restore;
+
+    afterEach(() => {
+      if (restore) {
+        restore();
+        restore = null;
+      }
+      // Force re-creation of router so fresh settingsService is used
+      cachedRouter = null;
+      cachedErrorHandler = null;
+    });
+
+    it('returns 403 when CHUNKED_UPLOAD_ENABLED=false', async () => {
+      restore = overrideEnv({ CHUNKED_UPLOAD_ENABLED: 'false' });
+      // Force fresh router to pick up env change
+      cachedRouter = null;
+      cachedErrorHandler = null;
+
+      const app = buildApp({ user: adminUser });
+      const res = await request(app)
+        .post('/api/chunked-upload/init')
+        .send({ filename: 'test.bin', totalSize: 1024, uploadTo: '', relativePath: '' });
 
       expect(res.status).toBe(403);
     });
