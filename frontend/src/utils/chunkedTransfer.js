@@ -1,4 +1,6 @@
-export const CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB
+// Defaults — used as fallbacks when server settings haven't loaded yet.
+export const DEFAULT_CHUNK_SIZE_MB = 20;
+export const CHUNK_SIZE = DEFAULT_CHUNK_SIZE_MB * 1024 * 1024; // 20 MB
 export const MAX_RETRIES = 3;
 export const RETRY_DELAY_MS = 1000;
 export const CHUNKED_TRANSFER_THRESHOLD = 100 * 1024 * 1024; // 100 MB

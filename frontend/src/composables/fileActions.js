@@ -1,5 +1,6 @@
 import { computed } from 'vue';
 import { useFileStore } from '@/stores/fileStore';
+import { useAppSettings } from '@/stores/appSettings';
 import { normalizePath } from '@/api';
 import { download, prepareDownload } from '@/utils/chunkedDownload';
 import { useTransferStore } from '@/stores/transferStore';
@@ -130,6 +131,10 @@ export function useFileActions() {
   const runDownload = async () => {
     if (!hasSelection.value) return;
 
+    const ct = useAppSettings().systemSettings?.chunkedTransfers;
+    const chunkedEnabled = ct?.downloadEnabled !== false;
+    const chunkSize = ct?.chunkSizeMB ? ct.chunkSizeMB * 1024 * 1024 : undefined;
+
     const items = selectedItems.value;
     const currentPath = normalizePath(fileStore.getCurrentPath || '');
 
@@ -144,7 +149,7 @@ export function useFileActions() {
       if (!filePath) return;
 
       await trackedDownload(item.name, item.size, (onProgress, signal) =>
-        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal })
+        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal, chunkSize, chunkedEnabled })
       );
       return;
     }
@@ -169,6 +174,8 @@ export function useFileActions() {
         size: prepared.size,
         onProgress,
         signal,
+        chunkSize,
+        chunkedEnabled,
       });
     }, 'Preparing zip…');
   };

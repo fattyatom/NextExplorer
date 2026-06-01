@@ -104,7 +104,7 @@ function triggerBlobDownload(blob, filename) {
 // Chunked download (Range requests, for files > CHUNKED_TRANSFER_THRESHOLD)
 // ---------------------------------------------------------------------------
 
-async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal) {
+async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal, chunkSize) {
   const handle = await window.showSaveFilePicker({
     suggestedName: filename,
     startIn: 'downloads',
@@ -113,7 +113,7 @@ async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress,
   let downloaded = 0;
 
   try {
-    for (const { start, end } of iterateChunks(fileSize)) {
+    for (const { start, end } of iterateChunks(fileSize, chunkSize)) {
       checkAborted(signal);
       const chunk = await fetchChunk(url, start, end, signal);
       await writable.write(new Uint8Array(chunk));
@@ -125,11 +125,11 @@ async function downloadWithFileSystemAccess(url, filename, fileSize, onProgress,
   }
 }
 
-async function downloadWithBlobFallback(url, filename, fileSize, onProgress, signal) {
+async function downloadWithBlobFallback(url, filename, fileSize, onProgress, signal, chunkSize) {
   const chunks = [];
   let downloaded = 0;
 
-  for (const { start, end } of iterateChunks(fileSize)) {
+  for (const { start, end } of iterateChunks(fileSize, chunkSize)) {
     checkAborted(signal);
     const chunk = await fetchChunk(url, start, end, signal);
     chunks.push(chunk);
@@ -170,26 +170,38 @@ export async function prepareDownload(paths, basePath, signal) {
  * Download a file with progress tracking.
  * Provide either `path` (single file) or `downloadId` (prepared zip).
  * Automatically selects chunked vs streamed based on file size.
+ *
+ * @param {Object} opts
+ * @param {string}  [opts.path]           - File path (single file download)
+ * @param {string}  [opts.downloadId]     - Prepared zip download ID
+ * @param {string}   opts.filename        - Suggested filename
+ * @param {number}  [opts.size]           - Known file size (avoids HEAD)
+ * @param {Function}[opts.onProgress]     - (downloaded, total) callback
+ * @param {AbortSignal}[opts.signal]      - Cancellation signal
+ * @param {number}  [opts.chunkSize]      - Override chunk size in bytes
+ * @param {boolean} [opts.chunkedEnabled] - false to force streamed download
  */
-export async function download({ path, downloadId, filename, size, onProgress, signal }) {
+export async function download({ path, downloadId, filename, size, onProgress, signal, chunkSize, chunkedEnabled }) {
   const url = buildDownloadUrl(path, downloadId);
   const fileSize = size || (await fetchFileSize(url, signal));
 
-  if (fileSize > CHUNKED_TRANSFER_THRESHOLD) {
+  const useChunked = chunkedEnabled !== false && fileSize > CHUNKED_TRANSFER_THRESHOLD;
+
+  if (useChunked) {
     // showSaveFilePicker requires a live user gesture. Prepared downloads
     // (downloadId) always lose the gesture during the async prepare step,
     // so skip it for those. Also catch SecurityError for edge cases where
     // the gesture expired (slow network, permissions policy, etc.).
     if (supportsFileSystemAccess && !downloadId) {
       try {
-        await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal);
+        await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal, chunkSize);
         return;
       } catch (err) {
         if (err.name === 'AbortError') throw err;
         if (err.name !== 'SecurityError') throw err;
       }
     }
-    await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal);
+    await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal, chunkSize);
     return;
   }
 

@@ -5,6 +5,7 @@ import { useUppyStore } from '@/stores/uppyStore';
 import { useFileStore } from '@/stores/fileStore';
 import { useNotificationsStore } from '@/stores/notifications';
 import { useTransferStore } from '@/stores/transferStore';
+import { useAppSettings } from '@/stores/appSettings';
 import { apiBase, normalizePath } from '@/api';
 import { isDisallowedUpload } from '@/utils/uploads';
 import { chunkedUpload } from '@/utils/chunkedUpload';
@@ -57,6 +58,9 @@ export function useFileUploader() {
       rawFile.webkitRelativePath || rawFile.name;
     const id = transferStore.add('upload', rawFile.name, rawFile.size);
 
+    const ct = useAppSettings().systemSettings?.chunkedTransfers;
+    const chunkSize = ct?.chunkSizeMB ? ct.chunkSizeMB * 1024 * 1024 : undefined;
+
     try {
       const t = transferStore.transfers.get(id);
       await chunkedUpload(
@@ -64,7 +68,8 @@ export function useFileUploader() {
         uploadTo,
         relativePath,
         (uploaded, total) => transferStore.updateProgress(id, uploaded, total),
-        t?.abortController?.signal
+        t?.abortController?.signal,
+        { chunkSize }
       );
       transferStore.complete(id);
       fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
@@ -107,7 +112,9 @@ export function useFileUploader() {
       }
 
       const rawFile = file?.data;
-      if (rawFile && rawFile.size > CHUNKED_TRANSFER_THRESHOLD) {
+      const ct = useAppSettings().systemSettings?.chunkedTransfers;
+      const chunkedUploadEnabled = ct?.uploadEnabled !== false;
+      if (chunkedUploadEnabled && rawFile && rawFile.size > CHUNKED_TRANSFER_THRESHOLD) {
         uppy.removeFile?.(file.id);
         handleChunkedUpload(rawFile);
         return;

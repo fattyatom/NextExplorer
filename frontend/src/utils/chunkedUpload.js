@@ -121,14 +121,24 @@ async function cancelUpload(uploadId) {
   }
 }
 
-export async function chunkedUpload(file, uploadTo, relativePath, onProgress, signal) {
+/**
+ * @param {File} file
+ * @param {string} uploadTo
+ * @param {string} relativePath
+ * @param {Function} onProgress
+ * @param {AbortSignal} signal
+ * @param {Object} [options]
+ * @param {number} [options.chunkSize] - Override chunk size in bytes
+ */
+export async function chunkedUpload(file, uploadTo, relativePath, onProgress, signal, options) {
   checkAborted(signal);
 
+  const chunkSize = options?.chunkSize || CHUNK_SIZE;
   const { uploadId } = await initUpload(file, uploadTo, relativePath, signal);
   let completed = false;
 
   try {
-    for (const { start, end } of iterateChunks(file.size, CHUNK_SIZE)) {
+    for (const { start, end } of iterateChunks(file.size, chunkSize)) {
       checkAborted(signal);
       await uploadChunk(uploadId, file, start, end, file.size, signal, onProgress);
     }
