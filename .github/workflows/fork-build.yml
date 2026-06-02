@@ -2,7 +2,7 @@ name: Fork — Build and Publish to GHCR
 
 on:
   push:
-    branches: [feat/chunked-downloads]
+    branches: [main]
     tags: ['v*']
 
 env:
