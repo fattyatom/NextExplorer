@@ -101,13 +101,21 @@ CustomStorage.prototype._handleFile = function handleFile(req, file, cb) {
       outStream.on('error', handleStreamError);
 
       outStream.on('finish', async () => {
+        if (req.socket?.destroyed) {
+          await cleanupTemporary();
+          cb(new Error('Client disconnected'));
+          return;
+        }
         try {
           await fs.rename(temporaryPath, finalPath);
+          const actualLogical = finalPath !== destinationPath
+            ? normalizeRelativePath(path.join(path.dirname(logicalRelativePath), path.basename(finalPath)))
+            : logicalRelativePath;
           cb(null, {
             path: finalPath,
             size: outStream.bytesWritten,
             filename: path.basename(finalPath),
-            logicalPath: logicalRelativePath,
+            logicalPath: actualLogical,
           });
         } catch (renameErr) {
           await cleanupTemporary();

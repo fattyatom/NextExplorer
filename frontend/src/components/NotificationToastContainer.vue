@@ -1,11 +1,19 @@
 <script setup>
+import { computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useNotificationsStore } from '@/stores/notifications';
+import { useTransferStore } from '@/stores/transferStore';
 import NotificationToast from './NotificationToast.vue';
+import TransferToast from './TransferToast.vue';
 
 const notificationsStore = useNotificationsStore();
+const transferStore = useTransferStore();
 const { activeToasts } = storeToRefs(notificationsStore);
 const { dismissToast } = notificationsStore;
+
+const transferToasts = computed(() =>
+  Array.from(transferStore.transfers.values())
+);
 </script>
 
 <template>
@@ -23,6 +31,13 @@ const { dismissToast } = notificationsStore;
         leave-from-class="opacity-100"
         leave-to-class="opacity-0"
       >
+        <TransferToast
+          v-for="transfer in transferToasts"
+          :key="'t-' + transfer.id"
+          v-bind="transfer"
+          @cancel="transferStore.cancel"
+          @dismiss="transferStore.remove"
+        />
         <NotificationToast
           v-for="notification in activeToasts"
           :key="notification.id"
