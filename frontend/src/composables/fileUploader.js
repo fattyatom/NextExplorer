@@ -12,7 +12,18 @@ import { chunkedUpload } from '@/utils/chunkedUpload';
 import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
 import DropTarget from '@uppy/drop-target';
 
+// Uppy derives a file id deterministically from name/type/size/lastModified, so the
+// same file (or a re-upload of one already on the server) always produces the same id.
+// We append a monotonically increasing token to guarantee every added file gets a
+// distinct id, even within the same millisecond.
+let uploadSeq = 0;
+const nextUploadId = (baseId) => {
+  uploadSeq += 1;
+  return `${baseId}-${Date.now().toString(36)}-${uploadSeq}`;
+};
+
 export function useFileUploader() {
+  // Filtering is centralized in utils/uploads
   const uppyStore = useUppyStore();
   const fileStore = useFileStore();
   const notificationsStore = useNotificationsStore();
@@ -28,6 +39,7 @@ export function useFileUploader() {
   const canUploadToCurrentPath = () => {
     const access = fileStore.currentPathData;
     if (!access) {
+      // If share metadata hasn't loaded yet, fail closed to avoid accidental uploads.
       return !String(fileStore.currentPath || '').startsWith('share/');
     }
     return access.canUpload !== false;
@@ -79,14 +91,22 @@ export function useFileUploader() {
     }
   }
 
+  // Ensure a single Uppy instance app-wide
   let uppy = uppyStore.uppy;
   const createdHere = ref(false);
 
   if (!uppy) {
     uppy = new Uppy({
-      debug: true,
+      debug: import.meta.env.DEV,
       autoProceed: true,
       store: uppyStore,
+      // Give every added file a unique id. Without this, re-uploading the same file
+      // (or two files with the same name/size) collides on Uppy's deterministic id:
+      // Uppy either rejects it as a duplicate or reuses the previous upload's completed
+      // progress state, stalling the new upload and logging "already uploaded" warnings.
+      // Returning a modified object also bypasses Uppy's duplicate check, so the server's
+      // findAvailableName stays the single source of truth for resolving name collisions.
+      onBeforeFileAdded: (file) => ({ ...file, id: nextUploadId(file.id) }),
     });
 
     uppy.use(XHRUpload, {
@@ -95,10 +115,13 @@ export function useFileUploader() {
       fieldName: 'filedata',
       bundle: false,
       responseType: 'json',
+      // Uppy v5 expects `allowedMetaFields` to be `true` (all) or an explicit list.
+      // `null` results in *no* metadata being sent, which breaks `uploadTo`/`relativePath`.
       allowedMetaFields: true,
       withCredentials: true,
     });
 
+    // Cookies carry auth; no token headers
     uppy.on('file-added', (file) => {
       if (!canUploadToCurrentPath()) {
         uppy.removeFile?.(file.id);
@@ -120,6 +143,7 @@ export function useFileUploader() {
         return;
       }
 
+      // Ensure server always receives a usable relativePath, even for drag-and-drop
       const inferredRelativePath =
         file?.meta?.relativePath ||
         file?.data?.webkitRelativePath ||
@@ -127,6 +151,7 @@ export function useFileUploader() {
         (file?.data && file?.data.name) ||
         '';
 
+      // Some rare DnD sources may miss name; prefer data.name if present
       if (!file?.name && file?.data?.name && typeof uppy.setFileName === 'function') {
         try {
           uppy.setFileName(file.id, file.data.name);
@@ -152,6 +177,8 @@ export function useFileUploader() {
     });
 
     uppy.on('upload', (_uploadID, batchFiles) => {
+      // Safety net: if permissions changed after files were queued, cancel *only* when the
+      // batch is targeting the currently-viewed path (avoids canceling uploads after navigation).
       const current = normalizePath(fileStore.currentPath || '');
       const batchList = Array.isArray(batchFiles) ? batchFiles : [];
       const targetsCurrentPath =
@@ -200,6 +227,7 @@ export function useFileUploader() {
           'Upload failed';
         notifyErrorOnce(heading);
       }
+      // Keep UI in sync in case some files partially uploaded.
       if (fileStore.currentPath) {
         fileStore.fetchPathItems(fileStore.currentPath).catch(() => {});
       }
@@ -210,6 +238,8 @@ export function useFileUploader() {
       notifyErrorOnce(message);
     });
 
+    // Uppy v5 uses private class fields; if it gets wrapped in a Vue Proxy (reactive store),
+    // method calls will throw "Cannot read from private field". Keep it raw.
     uppyStore.uppy = markRaw(uppy);
     createdHere.value = true;
   }
@@ -222,22 +252,13 @@ export function useFileUploader() {
     };
   }
 
-  function addFileWithDedup(fileObj) {
+  function addFile(fileObj) {
     try {
       uppy.addFile(fileObj);
     } catch (_) {
-      const name = fileObj.name || '';
-      const dotIdx = name.lastIndexOf('.');
-      const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
-      const ext = dotIdx > 0 ? name.slice(dotIdx) : '';
-      for (let n = 1; n <= 99; n++) {
-        try {
-          uppy.addFile({ ...fileObj, name: `${base} (${n})${ext}` });
-          return;
-        } catch (_) {
-          continue;
-        }
-      }
+      // Non-duplicate restrictions (e.g. no new uploads allowed) are surfaced by Uppy's
+      // own info events; nothing to do here. Duplicate ids can no longer occur because
+      // onBeforeFileAdded assigns a unique id to every file.
     }
   }
 
@@ -282,8 +303,9 @@ export function useFileUploader() {
         );
 
         files.value = selectedFiles.map((file) => uppyFile(file));
-        files.value.forEach((file) => addFileWithDedup(file));
+        files.value.forEach((file) => addFile(file));
 
+        // Reset the input so the same file can be selected again if needed
         e.target.value = '';
         resolve();
       };
@@ -302,7 +324,9 @@ export function useFileUploader() {
 
   onBeforeUnmount(() => {
     inputRef.value?.remove();
+    // Only close the singleton if we created it here
     if (createdHere.value) {
+      // Uppy v5 uses `destroy()`. Older versions had `close()` in some setups.
       uppy.destroy?.();
       uppy.close?.();
       if (uppyStore.uppy === uppy) {
@@ -317,6 +341,7 @@ export function useFileUploader() {
   };
 }
 
+// Attach/detach Uppy DropTarget plugin to a given element ref
 export function useUppyDropTarget(targetRef) {
   const uppyStore = useUppyStore();
 
