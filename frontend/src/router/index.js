@@ -188,7 +188,8 @@ router.beforeEach(async (to) => {
 
   // Allow guest access for share paths (check if path starts with share/)
   const isGuestRoute = Boolean(to.meta?.allowGuest);
-  const pathParam = typeof to.params?.path === 'string' ? to.params.path : '';
+  const rawPath = to.params?.path;
+  const pathParam = Array.isArray(rawPath) ? rawPath.join('/') : (typeof rawPath === 'string' ? rawPath : '');
   const isSharePath = pathParam.startsWith('share/');
 
   if (isGuestRoute && isSharePath) {
