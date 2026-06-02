@@ -101,8 +101,9 @@ CustomStorage.prototype._handleFile = function handleFile(req, file, cb) {
       outStream.on('error', handleStreamError);
 
       outStream.on('finish', async () => {
-        if (req.destroyed) {
+        if (req.socket?.destroyed) {
           await cleanupTemporary();
+          cb(new Error('Client disconnected'));
           return;
         }
         try {
