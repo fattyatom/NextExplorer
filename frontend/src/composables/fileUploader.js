@@ -12,6 +12,16 @@ import { chunkedUpload } from '@/utils/chunkedUpload';
 import { CHUNKED_TRANSFER_THRESHOLD } from '@/utils/chunkedTransfer';
 import DropTarget from '@uppy/drop-target';
 
+// Uppy derives a file id deterministically from name/type/size/lastModified, so the
+// same file (or a re-upload of one already on the server) always produces the same id.
+// We append a monotonically increasing token to guarantee every added file gets a
+// distinct id, even within the same millisecond.
+let uploadSeq = 0;
+const nextUploadId = (baseId) => {
+  uploadSeq += 1;
+  return `${baseId}-${Date.now().toString(36)}-${uploadSeq}`;
+};
+
 export function useFileUploader() {
   const uppyStore = useUppyStore();
   const fileStore = useFileStore();
@@ -84,9 +94,16 @@ export function useFileUploader() {
 
   if (!uppy) {
     uppy = new Uppy({
-      debug: true,
+      debug: import.meta.env.DEV,
       autoProceed: true,
       store: uppyStore,
+      // Give every added file a unique id. Without this, re-uploading the same file
+      // (or two files with the same name/size) collides on Uppy's deterministic id:
+      // Uppy either rejects it as a duplicate or reuses the previous upload's completed
+      // progress state, stalling the new upload and logging "already uploaded" warnings.
+      // Returning a modified object also bypasses Uppy's duplicate check, so the server's
+      // findAvailableName stays the single source of truth for resolving name collisions.
+      onBeforeFileAdded: (file) => ({ ...file, id: nextUploadId(file.id) }),
     });
 
     uppy.use(XHRUpload, {
@@ -222,22 +239,13 @@ export function useFileUploader() {
     };
   }
 
-  function addFileWithDedup(fileObj) {
+  function addFile(fileObj) {
     try {
       uppy.addFile(fileObj);
     } catch (_) {
-      const name = fileObj.name || '';
-      const dotIdx = name.lastIndexOf('.');
-      const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;
-      const ext = dotIdx > 0 ? name.slice(dotIdx) : '';
-      for (let n = 1; n <= 99; n++) {
-        try {
-          uppy.addFile({ ...fileObj, name: `${base} (${n})${ext}` });
-          return;
-        } catch (_) {
-          continue;
-        }
-      }
+      // Non-duplicate restrictions (e.g. no new uploads allowed) are surfaced by Uppy's
+      // own info events; nothing to do here. Duplicate ids can no longer occur because
+      // onBeforeFileAdded assigns a unique id to every file.
     }
   }
 
@@ -282,7 +290,7 @@ export function useFileUploader() {
         );
 
         files.value = selectedFiles.map((file) => uppyFile(file));
-        files.value.forEach((file) => addFileWithDedup(file));
+        files.value.forEach((file) => addFile(file));
 
         e.target.value = '';
         resolve();
