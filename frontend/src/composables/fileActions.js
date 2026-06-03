@@ -133,7 +133,6 @@ export function useFileActions() {
 
     const ct = useAppSettings().systemSettings?.chunkedTransfers;
     const chunkedEnabled = ct?.downloadEnabled !== false;
-    const chunkSize = ct?.chunkSizeMB ? ct.chunkSizeMB * 1024 * 1024 : undefined;
 
     const items = selectedItems.value;
     const currentPath = normalizePath(fileStore.getCurrentPath || '');
@@ -149,7 +148,7 @@ export function useFileActions() {
       if (!filePath) return;
 
       await trackedDownload(item.name, item.size, (onProgress, signal) =>
-        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal, chunkSize, chunkedEnabled })
+        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal })
       );
       return;
     }
@@ -173,7 +172,6 @@ export function useFileActions() {
         filename: zipName,
         onProgress,
         signal,
-        chunkSize,
         chunkedEnabled,
       });
     });
