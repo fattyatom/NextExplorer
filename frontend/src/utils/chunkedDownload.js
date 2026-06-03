@@ -233,17 +233,13 @@ export async function download({ path: filePath, filename, size, onProgress, sig
 }
 
 /**
- * Download multiple files / directories as a streaming zip.
+ * Download multiple files / directories as a zip.
  *
- * The server creates the zip and streams bytes as they're produced.
- * Headers are flushed immediately so reverse proxies don't timeout.
- * A temp file is kept server-side so the download can be resumed via
- * range-download if the stream is interrupted.
- *
- * Strategy (in order of preference):
- *  1. FSAA — stream zip bytes directly to disk as they arrive (any size).
- *  2. Resume via range-download — abort the stream, let the server finish the
- *     temp file, then download via a native GET (zero memory, any browser).
+ * The server accepts the request, returns 202 { downloadId, filename }
+ * immediately, and builds the zip to a temp file in the background.
+ * The client polls GET /api/range-download?downloadId=… until the file
+ * is ready, then downloads it.  This avoids all reverse-proxy streaming
+ * timeouts (Cloudflare 524, nginx proxy_read_timeout, etc.).
  *
  * @param {Object} opts
  * @param {string[]} opts.paths       - File/directory paths to include
@@ -251,7 +247,6 @@ export async function download({ path: filePath, filename, size, onProgress, sig
  * @param {string}   opts.filename    - Suggested zip filename
  * @param {Function}[opts.onProgress] - (downloaded, total) callback
  * @param {AbortSignal}[opts.signal]  - Cancellation signal
- * @param {boolean} [opts.chunkedEnabled] - false disables resume fallback
  */
 export async function streamZipDownload({
   paths,
@@ -259,10 +254,10 @@ export async function streamZipDownload({
   filename,
   onProgress,
   signal,
-  chunkedEnabled,
 }) {
   checkAborted(signal);
 
+  // 1. Ask the server to start building the zip (returns immediately)
   const res = await fetch(buildUrl('/api/download'), {
     method: 'POST',
     credentials: 'include',
@@ -271,40 +266,19 @@ export async function streamZipDownload({
     signal,
   });
 
-  if (!res.ok) {
+  if (!res.ok && res.status !== 202) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error?.message || `Stream failed: ${res.status}`);
+    throw new Error(body?.error?.message || `Download request failed: ${res.status}`);
   }
 
-  const downloadId = res.headers.get('X-Download-Id');
-  const resolvedFilename = parseFilenameFromHeaders(res.headers) || filename;
+  const body = await res.json();
+  const downloadId = body.downloadId;
+  const resolvedFilename = body.filename || filename;
 
-  // --- Path 1: FSAA — stream directly to disk (any size) ---
-  if (supportsFileSystemAccess) {
-    try {
-      await streamResponseToDisk(res, resolvedFilename, onProgress, signal);
-      return;
-    } catch (err) {
-      if (err.name === 'AbortError') throw err;
-      // Any failure (gesture error or mid-stream) → try resume
-      if (downloadId && chunkedEnabled !== false) {
-        await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal);
-        return;
-      }
-      throw err;
-    }
+  if (!downloadId) {
+    throw new Error('Server did not return a downloadId');
   }
 
-  // --- Path 2: No FSAA — abort stream, resume via range-download ---
-  if (downloadId && chunkedEnabled !== false) {
-    // Discard the response body so the connection closes cleanly.
-    // The server detects the disconnect and continues writing to the temp file.
-    res.body?.cancel().catch(() => {});
-    await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal);
-    return;
-  }
-
-  // Last resort (chunked disabled, no FSAA): in-memory blob
-  const blob = await streamResponseToBlob(res, onProgress, signal);
-  triggerBlobDownload(blob, resolvedFilename);
+  // 2. Poll until the zip is built, then download the completed file
+  await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal);
 }

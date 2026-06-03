@@ -9,7 +9,6 @@ const { resolvePathWithAccess } = require('../../services/accessManager');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ValidationError, ForbiddenError } = require('../../errors/AppError');
 const preparedDownloads = require('../../services/preparedDownloads');
-const { getChunkedTransferSettings } = require('../../services/settingsService');
 const logger = require('../../utils/logger');
 const { collectInputPaths, encodeContentDisposition, stripBasePath } = require('./utils');
 
@@ -21,14 +20,11 @@ const router = require('express').Router();
  * Downloads one or more files/directories.
  *
  * Single file  → streams the file directly via res.download().
- * Multi / dir  → creates a zip on the fly with archiver, dual-piped to both
- *                the HTTP response and a server-side temp file.  The temp file
- *                enables range-download resume if the stream breaks.
- *                An X-Download-Id header lets the client locate the temp file.
- *
- * Headers are flushed immediately via res.flushHeaders() so that reverse
- * proxies (Cloudflare, nginx) see the response before the archive starts
- * building — this prevents 524 timeout errors on large directories.
+ * Multi / dir  → returns 202 { downloadId, filename } immediately and builds
+ *                the zip to a temp file in the background.  The client polls
+ *                GET /api/range-download?downloadId=… until the file is ready.
+ *                This completely avoids reverse-proxy streaming timeouts
+ *                (Cloudflare 524, nginx proxy_read_timeout, etc.).
  */
 router.post(
   '/download',
@@ -112,75 +108,41 @@ router.post(
       return 'download.zip';
     })();
 
-    // Check if chunked download (resume infrastructure) is enabled
-    const { effective } = await getChunkedTransferSettings();
-    const resumeEnabled = effective.downloadEnabled;
+    const downloadId = crypto.randomBytes(16).toString('hex');
+    const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
+    const userId = req.user?.id || req.guestSession?.id || null;
 
-    // ── Set ALL headers before flushing ──────────────────────────────
-    let downloadId;
-    let fileStream;
-    let totalBytes = 0;
-
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
-
-    if (resumeEnabled) {
-      downloadId = crypto.randomBytes(16).toString('hex');
-      const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
-      const userId = req.user?.id || req.guestSession?.id || null;
-
-      preparedDownloads.set(downloadId, {
-        userId,
-        tempPath,
-        filename: archiveName,
-        size: -1,
-        building: true,
-      });
-
-      res.setHeader('X-Download-Id', downloadId);
-      res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
-
-      fileStream = fss.createWriteStream(tempPath);
-    }
-
-    // Flush headers immediately so reverse proxies (Cloudflare) see the
-    // 200 response before the archive starts building.  Without this,
-    // headers stay buffered until archiver pipes its first data chunk,
-    // and the proxy may 524 if that takes too long.
-    res.flushHeaders();
-
-    const archive = archiver('zip', { zlib: { level: 1 } });
-
-    // ── When downloadEnabled: dual-pipe to response + temp file for resume ──
-    // ── When disabled: pipe only to response (no temp file overhead) ─────────
-    if (fileStream) {
-      archive.pipe(fileStream);
-
-      archive.on('data', (chunk) => {
-        totalBytes += chunk.length;
-      });
-
-      // If the client disconnects mid-stream, stop writing to the response
-      // but let the archive continue writing to the temp file for resume
-      res.on('close', () => {
-        archive.unpipe(res);
-      });
-    }
-
-    archive.on('error', (err) => {
-      logger.error({ err, downloadId }, 'Streaming archive creation failed');
-      if (fileStream) fileStream.destroy(err);
-      if (downloadId) preparedDownloads.remove(downloadId);
-      if (!res.headersSent) {
-        res.status(500).json({ error: { message: 'Archive creation failed.' } });
-      } else if (!res.writableEnded) {
-        res.end();
-      }
+    // Register as "building" so range-download rejects premature requests
+    preparedDownloads.set(downloadId, {
+      userId,
+      tempPath,
+      filename: archiveName,
+      size: -1,
+      building: true,
     });
 
-    // Pipe to HTTP response — don't auto-end when resume is enabled;
-    // we end manually after the temp file is fully flushed
-    archive.pipe(res, { end: !resumeEnabled });
+    // ── Return immediately — the client polls /api/range-download ────
+    // Responding with 202 + downloadId before the archive starts avoids
+    // every flavour of reverse-proxy timeout (Cloudflare 524, Tunnel
+    // idle-read, nginx proxy_read_timeout, etc.).
+    res.status(202).json({ downloadId, filename: archiveName });
+
+    // ── Build the zip in the background ─────────────────────────────
+    const fileStream = fss.createWriteStream(tempPath);
+    const archive = archiver('zip', { zlib: { level: 1 } });
+    let totalBytes = 0;
+
+    archive.on('data', (chunk) => {
+      totalBytes += chunk.length;
+    });
+
+    archive.on('error', (err) => {
+      logger.error({ err, downloadId }, 'Background archive creation failed');
+      fileStream.destroy(err);
+      preparedDownloads.remove(downloadId);
+    });
+
+    archive.pipe(fileStream);
 
     targets.forEach(({ relativePath, absolutePath, stats }) => {
       const entryNameRaw = stripBasePath(relativePath, baseNormalized);
@@ -197,32 +159,30 @@ router.post(
       }
     });
 
-    await archive.finalize();
+    archive.finalize().then(async () => {
+      try {
+        // Wait for the temp file to be fully flushed
+        await new Promise((resolve, reject) => {
+          fileStream.on('close', resolve);
+          fileStream.on('error', reject);
+        });
 
-    if (resumeEnabled && fileStream) {
-      const userId = req.user?.id || req.guestSession?.id || null;
-      // Wait for the temp file to be fully written before registering
-      await new Promise((resolve, reject) => {
-        fileStream.on('close', resolve);
-        fileStream.on('error', reject);
-      });
+        preparedDownloads.set(downloadId, {
+          userId,
+          tempPath,
+          filename: archiveName,
+          size: totalBytes,
+        });
 
-      preparedDownloads.set(downloadId, {
-        userId,
-        tempPath: fileStream.path,
-        filename: archiveName,
-        size: totalBytes,
-      });
-
-      logger.info(
-        { downloadId, filename: archiveName, size: totalBytes },
-        'Streaming download completed with resume support'
-      );
-
-      if (!res.writableEnded) {
-        res.end();
+        logger.info(
+          { downloadId, filename: archiveName, size: totalBytes },
+          'Background archive build completed'
+        );
+      } catch (err) {
+        logger.error({ err, downloadId }, 'Failed to finalize temp file');
+        preparedDownloads.remove(downloadId);
       }
-    }
+    });
   })
 );
 
