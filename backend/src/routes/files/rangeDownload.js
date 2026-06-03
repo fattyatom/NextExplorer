@@ -139,6 +139,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
       'Content-Type': mimeType,
       'Content-Disposition': encodeContentDisposition(filename),
     });
+    res.flushHeaders();
 
     const stream = fss.createReadStream(absolutePath, { start, end });
     stream.on('error', (err) => {
@@ -159,6 +160,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
     'Accept-Ranges': 'bytes',
     'Content-Disposition': encodeContentDisposition(filename),
   });
+  res.flushHeaders();
 
   const stream = fss.createReadStream(absolutePath);
   stream.on('error', (err) => {

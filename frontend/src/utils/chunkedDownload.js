@@ -184,27 +184,12 @@ async function resumeWithRangeDownload(downloadId, filename, onProgress, signal)
     signal?.removeEventListener('abort', onAbort);
   }
 
-  // Prefer FSAA — stream the completed file to disk
-  if (supportsFileSystemAccess) {
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        headers: getCommonHeaders(),
-        signal,
-      });
-      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-      await streamResponseToDisk(res, filename, onProgress, signal);
-      return;
-    } catch (err) {
-      if (err.name === 'AbortError') throw err;
-      // SecurityError / NotAllowedError → gesture expired; fall through
-      if (err.name !== 'SecurityError' && err.name !== 'NotAllowedError') throw err;
-    }
-  }
-
-  // Native browser download — zero memory, any browser.
-  // The browser's own download manager shows progress.
+  // Use native browser download for prepared zips.
+  // After the polling phase the user gesture has expired, so FSAA's
+  // showSaveFilePicker() would fail anyway.  More importantly, fetch()-based
+  // streaming through Cloudflare can still 524 on very large files.
+  // The browser's own download manager handles large files reliably with
+  // built-in retry/resume support and shows its own progress.
   triggerNativeDownload(url, filename);
   onProgress?.(fileSize, fileSize);
 }
