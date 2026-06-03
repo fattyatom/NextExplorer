@@ -22,8 +22,12 @@ const router = require('express').Router();
  * Single file  → streams the file directly via res.download().
  * Multi / dir  → creates a zip on the fly with archiver, dual-piped to both
  *                the HTTP response and a server-side temp file.  The temp file
- *                enables chunked range-download resume if the stream breaks.
+ *                enables range-download resume if the stream breaks.
  *                An X-Download-Id header lets the client locate the temp file.
+ *
+ * Headers are flushed immediately via res.flushHeaders() so that reverse
+ * proxies (Cloudflare, nginx) see the response before the archive starts
+ * building — this prevents 524 timeout errors on large directories.
  */
 router.post(
   '/download',
@@ -124,6 +128,12 @@ router.post(
     res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
     res.setHeader('X-Download-Id', downloadId);
     res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
+
+    // Flush headers immediately so reverse proxies (Cloudflare) see the
+    // 200 response before the archive starts building.  Without this,
+    // headers stay buffered until archiver pipes its first data chunk,
+    // and the proxy may 524 if that takes too long.
+    res.flushHeaders();
 
     const fileStream = fss.createWriteStream(tempPath);
     const archive = archiver('zip', { zlib: { level: 1 } });

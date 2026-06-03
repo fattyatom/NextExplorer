@@ -59,7 +59,7 @@ const buildApp = ({ user } = {}) => {
     if (user) req.user = user;
     next();
   });
-  app.use('/api/files', downloadRoutes);
+  app.use('/api', downloadRoutes);
   app.use(errorHandler);
   return { app, preparedDownloads };
 };

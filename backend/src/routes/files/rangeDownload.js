@@ -46,6 +46,12 @@ async function resolveTarget(req) {
     if (dl.building) {
       throw new NotFoundError('Download is still being prepared. Retry shortly.');
     }
+    if (dl.error) {
+      // Use a non-retryable error so the client stops polling
+      const err = new Error(`Archive preparation failed: ${dl.error}`);
+      err.status = 500;
+      throw err;
+    }
     const userId = req.user?.id || req.guestSession?.id || null;
     if (dl.userId !== userId) {
       throw new ForbiddenError('Download belongs to a different user.');
