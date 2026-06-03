@@ -43,6 +43,9 @@ async function resolveTarget(req) {
     if (!dl) {
       throw new NotFoundError('Prepared download not found or expired.');
     }
+    if (dl.building) {
+      throw new NotFoundError('Download is still being prepared. Retry shortly.');
+    }
     const userId = req.user?.id || req.guestSession?.id || null;
     if (dl.userId !== userId) {
       throw new ForbiddenError('Download belongs to a different user.');
@@ -72,7 +75,7 @@ async function resolveTarget(req) {
 
   if (stats.isDirectory()) {
     throw new ValidationError(
-      'Cannot download a directory via this endpoint. Use POST /api/download/prepare instead.'
+      'Cannot download a directory via this endpoint. Use POST /api/download/zip-stream instead.'
     );
   }
 

@@ -146,24 +146,72 @@ async function downloadWithBlobFallback(url, filename, fileSize, onProgress, sig
 // ---------------------------------------------------------------------------
 
 /**
- * Prepare a multi-file or directory download as a zip on the server.
- * Returns { downloadId, filename, size } for use with download().
+ * Stream a multi-file/directory zip download.
+ * The server creates the zip and streams bytes as they're produced, avoiding
+ * Cloudflare 524 timeouts. A temp file is kept server-side so the download
+ * can be resumed via chunked range-download if the stream is interrupted.
  */
-export async function prepareDownload(paths, basePath, signal) {
+export async function streamZipDownload({
+  paths,
+  basePath,
+  filename,
+  onProgress,
+  signal,
+  chunkSize,
+  chunkedEnabled,
+}) {
   checkAborted(signal);
 
-  const res = await fetch(buildUrl('/api/download/prepare'), {
+  const res = await fetch(buildUrl('/api/download/zip-stream'), {
     method: 'POST',
     credentials: 'include',
     headers: { ...getCommonHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ items: paths, basePath }),
     signal,
   });
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body?.error?.message || `Prepare failed: ${res.status}`);
+    throw new Error(body?.error?.message || `Stream failed: ${res.status}`);
   }
-  return res.json();
+
+  const downloadId = res.headers.get('X-Download-Id');
+  const resolvedFilename = parseFilenameFromHeaders(res.headers) || filename;
+
+  try {
+    const blob = await streamResponseToBlob(res, onProgress, signal);
+    triggerBlobDownload(blob, resolvedFilename);
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+
+    if (downloadId && chunkedEnabled !== false) {
+      await resumeWithChunkedDownload(downloadId, resolvedFilename, onProgress, signal, chunkSize);
+      return;
+    }
+    throw err;
+  }
+}
+
+const RESUME_POLL_INTERVAL_MS = 3000;
+const RESUME_MAX_ATTEMPTS = 40;
+
+async function resumeWithChunkedDownload(downloadId, filename, onProgress, signal, chunkSize) {
+  const url = buildDownloadUrl(null, downloadId);
+
+  for (let attempt = 0; attempt < RESUME_MAX_ATTEMPTS; attempt++) {
+    checkAborted(signal);
+    try {
+      const fileSize = await fetchFileSize(url, signal);
+      await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal, chunkSize);
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      const isNotReady =
+        err.message?.includes('404') || err.message?.includes('still being prepared');
+      if (!isNotReady || attempt === RESUME_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, RESUME_POLL_INTERVAL_MS));
+    }
+  }
 }
 
 /**
