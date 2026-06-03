@@ -64,13 +64,13 @@ const buildApp = ({ user } = {}) => {
   return { app, preparedDownloads };
 };
 
-describe('POST /api/files/download', () => {
+describe('POST /api/download', () => {
   // ── Single-file fast path ──────────────────────────────────────────
   describe('single file', () => {
     it('streams the file directly (no zip)', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['solo.txt'] });
 
       expect(res.status).toBe(200);
@@ -86,7 +86,7 @@ describe('POST /api/files/download', () => {
     it('streams a valid zip for a directory', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['photos'], basePath: '' })
         .responseType('arraybuffer');
 
@@ -104,7 +104,7 @@ describe('POST /api/files/download', () => {
     it('streams a valid zip for multiple files', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['photos/a.txt', 'photos/b.txt'], basePath: '' })
         .responseType('arraybuffer');
 
@@ -120,7 +120,7 @@ describe('POST /api/files/download', () => {
     it('names single-directory zip after the directory', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['photos'] })
         .responseType('arraybuffer');
 
@@ -133,7 +133,7 @@ describe('POST /api/files/download', () => {
     it('registers the download in preparedDownloads with final size', async () => {
       const { app, preparedDownloads } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['photos'], basePath: '' })
         .responseType('arraybuffer');
 
@@ -148,7 +148,7 @@ describe('POST /api/files/download', () => {
     it('sets X-Download-Id and X-Archive-Name headers', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['photos'] })
         .responseType('arraybuffer');
 
@@ -162,7 +162,7 @@ describe('POST /api/files/download', () => {
     it('returns 400 when no paths provided', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: [] });
 
       expect(res.status).toBe(400);
@@ -171,7 +171,7 @@ describe('POST /api/files/download', () => {
     it('returns 400 when body is missing', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({});
 
       expect(res.status).toBe(400);
@@ -180,7 +180,7 @@ describe('POST /api/files/download', () => {
     it('returns 400 for only-whitespace paths', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/files/download')
+        .post('/api/download')
         .send({ items: ['  ', ''] });
 
       expect(res.status).toBe(400);

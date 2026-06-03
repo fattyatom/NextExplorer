@@ -262,7 +262,7 @@ export async function streamZipDownload({
 }) {
   checkAborted(signal);
 
-  const res = await fetch(buildUrl('/api/files/download'), {
+  const res = await fetch(buildUrl('/api/download'), {
     method: 'POST',
     credentials: 'include',
     headers: { ...getCommonHeaders(), 'Content-Type': 'application/json' },

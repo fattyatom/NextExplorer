@@ -186,7 +186,7 @@ describe('download()', () => {
 // ---------------------------------------------------------------------------
 
 describe('streamZipDownload()', () => {
-  it('POSTs to /api/files/download with correct body', async () => {
+  it('POSTs to /api/download with correct body', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
     fetchMock.mockResolvedValue(
@@ -207,7 +207,7 @@ describe('streamZipDownload()', () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe('http://test/api/files/download');
+    expect(url).toBe('http://test/api/download');
     expect(opts.method).toBe('POST');
     const body = JSON.parse(opts.body);
     expect(body.items).toEqual(['photos/a.jpg', 'photos/b.jpg']);
@@ -273,7 +273,7 @@ describe('streamZipDownload()', () => {
 
       const cancelSpy = vi.fn().mockResolvedValue(undefined);
 
-      // First call: POST /api/files/download
+      // First call: POST /api/download
       fetchMock.mockResolvedValueOnce({
         ok: true,
         status: 200,

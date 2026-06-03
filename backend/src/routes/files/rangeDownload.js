@@ -75,7 +75,7 @@ async function resolveTarget(req) {
 
   if (stats.isDirectory()) {
     throw new ValidationError(
-      'Cannot download a directory via this endpoint. Use POST /api/files/download instead.'
+      'Cannot download a directory via this endpoint. Use POST /api/download instead.'
     );
   }
 
