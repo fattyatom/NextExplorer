@@ -116,12 +116,18 @@ export function useFileActions() {
     const id = store.add('download', name, size || 0, statusText);
     try {
       const t = store.transfers.get(id);
-      await downloadFn(
+      const result = await downloadFn(
         (downloaded, total) => store.updateProgress(id, downloaded, total),
         t?.abortController?.signal,
         (text) => store.updateStatus(id, text)
       );
-      store.complete(id);
+      if (result === 'native-handoff') {
+        // Browser's download manager owns it now — quietly dismiss the toast.
+        // Showing "downloaded" would be misleading since we can't confirm.
+        store.remove(id);
+      } else {
+        store.complete(id);
+      }
     } catch (err) {
       if (err.name === 'AbortError') return;
       store.fail(id, err.message || 'Download failed');

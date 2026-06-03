@@ -158,7 +158,7 @@ async function cancelPreparedDownload(downloadId) {
   }
 }
 
-async function resumeWithRangeDownload(downloadId, filename, onProgress, signal) {
+async function resumeWithRangeDownload(downloadId, filename, onProgress, signal, onStatus) {
   const url = buildRangeDownloadUrl(null, downloadId);
 
   // If the caller aborts, cancel the server-side build + temp file
@@ -190,8 +190,11 @@ async function resumeWithRangeDownload(downloadId, filename, onProgress, signal)
   // streaming through Cloudflare can still 524 on very large files.
   // The browser's own download manager handles large files reliably with
   // built-in retry/resume support and shows its own progress.
+  onStatus?.('Handing off to browser…');
   triggerNativeDownload(url, filename);
-  onProgress?.(fileSize, fileSize);
+  // Signal that the browser's download manager now owns the transfer.
+  // The caller should dismiss quietly — we can't track native progress.
+  return 'native-handoff';
 }
 
 // ---------------------------------------------------------------------------
@@ -296,5 +299,5 @@ export async function streamZipDownload({
   onStatus?.('Preparing zip…');
 
   // 3. Poll until the zip is built, then download the completed file
-  await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal);
+  return await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal, onStatus);
 }
