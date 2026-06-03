@@ -11,9 +11,9 @@ const testUser = { id: 'user-1', roles: ['user'] };
 
 beforeAll(async () => {
   envContext = await setupTestEnv({
-    tag: 'download-stream-test-',
+    tag: 'download-test-',
     modules: [
-      'src/routes/downloadStream',
+      'src/routes/files/download',
       'src/services/accessManager',
       'src/services/preparedDownloads',
       'src/middleware/errorHandler',
@@ -34,7 +34,7 @@ afterAll(async () => {
 const buildApp = ({ user } = {}) => {
   clearModuleCache('src/config/env');
   clearModuleCache('src/config/index');
-  clearModuleCache('src/routes/downloadStream');
+  clearModuleCache('src/routes/files/download');
   clearModuleCache('src/services/accessManager');
   clearModuleCache('src/services/preparedDownloads');
   clearModuleCache('src/middleware/errorHandler');
@@ -48,9 +48,8 @@ const buildApp = ({ user } = {}) => {
     },
   });
 
-  const downloadStreamRoutes = envContext.requireFresh('src/routes/downloadStream');
-  // Access the same preparedDownloads instance that downloadStream loaded into cache
-  // (requireFresh would clear+reload, giving us a different Map)
+  const downloadRoutes = envContext.requireFresh('src/routes/files/download');
+  // Access the same preparedDownloads instance the route loaded into cache
   const preparedDownloads = require(modulePath('src/services/preparedDownloads'));
   const { errorHandler } = envContext.requireFresh('src/middleware/errorHandler');
 
@@ -60,17 +59,34 @@ const buildApp = ({ user } = {}) => {
     if (user) req.user = user;
     next();
   });
-  app.use('/api', downloadStreamRoutes);
+  app.use('/api/files', downloadRoutes);
   app.use(errorHandler);
   return { app, preparedDownloads };
 };
 
-describe('Download Stream Routes', () => {
-  describe('POST /api/download/zip-stream', () => {
+describe('POST /api/files/download', () => {
+  // ── Single-file fast path ──────────────────────────────────────────
+  describe('single file', () => {
+    it('streams the file directly (no zip)', async () => {
+      const { app } = buildApp({ user: testUser });
+      const res = await request(app)
+        .post('/api/files/download')
+        .send({ items: ['solo.txt'] });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-disposition']).toContain('solo.txt');
+      expect(res.text).toBe('Solo file');
+      // Single files should NOT have X-Download-Id
+      expect(res.headers['x-download-id']).toBeUndefined();
+    });
+  });
+
+  // ── Archive (multi-file / directory) ───────────────────────────────
+  describe('directory zip', () => {
     it('streams a valid zip for a directory', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/download/zip-stream')
+        .post('/api/files/download')
         .send({ items: ['photos'], basePath: '' })
         .responseType('arraybuffer');
 
@@ -88,7 +104,7 @@ describe('Download Stream Routes', () => {
     it('streams a valid zip for multiple files', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/download/zip-stream')
+        .post('/api/files/download')
         .send({ items: ['photos/a.txt', 'photos/b.txt'], basePath: '' })
         .responseType('arraybuffer');
 
@@ -101,10 +117,23 @@ describe('Download Stream Routes', () => {
       expect(entries).toContain('photos/b.txt');
     });
 
-    it('registers the download for chunked resume', async () => {
+    it('names single-directory zip after the directory', async () => {
+      const { app } = buildApp({ user: testUser });
+      const res = await request(app)
+        .post('/api/files/download')
+        .send({ items: ['photos'] })
+        .responseType('arraybuffer');
+
+      expect(res.headers['content-disposition']).toContain('photos.zip');
+    });
+  });
+
+  // ── Resume metadata ────────────────────────────────────────────────
+  describe('resume metadata', () => {
+    it('registers the download in preparedDownloads with final size', async () => {
       const { app, preparedDownloads } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/download/zip-stream')
+        .post('/api/files/download')
         .send({ items: ['photos'], basePath: '' })
         .responseType('arraybuffer');
 
@@ -116,10 +145,24 @@ describe('Download Stream Routes', () => {
       expect(dl.filename).toBe('photos.zip');
     });
 
+    it('sets X-Download-Id and X-Archive-Name headers', async () => {
+      const { app } = buildApp({ user: testUser });
+      const res = await request(app)
+        .post('/api/files/download')
+        .send({ items: ['photos'] })
+        .responseType('arraybuffer');
+
+      expect(res.headers['x-download-id']).toMatch(/^[a-f0-9]{32}$/);
+      expect(decodeURIComponent(res.headers['x-archive-name'])).toBe('photos.zip');
+    });
+  });
+
+  // ── Validation ─────────────────────────────────────────────────────
+  describe('validation', () => {
     it('returns 400 when no paths provided', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/download/zip-stream')
+        .post('/api/files/download')
         .send({ items: [] });
 
       expect(res.status).toBe(400);
@@ -128,20 +171,19 @@ describe('Download Stream Routes', () => {
     it('returns 400 when body is missing', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/download/zip-stream')
+        .post('/api/files/download')
         .send({});
 
       expect(res.status).toBe(400);
     });
 
-    it('names single-directory zip after the directory', async () => {
+    it('returns 400 for only-whitespace paths', async () => {
       const { app } = buildApp({ user: testUser });
       const res = await request(app)
-        .post('/api/download/zip-stream')
-        .send({ items: ['photos'] })
-        .responseType('arraybuffer');
+        .post('/api/files/download')
+        .send({ items: ['  ', ''] });
 
-      expect(res.headers['content-disposition']).toContain('photos.zip');
+      expect(res.status).toBe(400);
     });
   });
 });

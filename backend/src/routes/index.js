@@ -1,7 +1,6 @@
 const authRoutes = require('./auth');
 const uploadRoutes = require('./upload');
 const chunkedUploadRoutes = require('./chunkedUpload');
-const downloadStreamRoutes = require('./downloadStream');
 const fileRoutes = require('./files');
 const browseRoutes = require('./browse');
 const thumbnailRoutes = require('./thumbnails');
@@ -31,7 +30,6 @@ const registerRoutes = (app) => {
   app.use('/api/auth', authRoutes);
   app.use('/api', uploadRoutes);
   app.use('/api', chunkedUploadRoutes);
-  app.use('/api', downloadStreamRoutes);
   app.use('/api', fileRoutes);
   app.use('/api', browseRoutes);
   app.use('/api', editorRoutes);
