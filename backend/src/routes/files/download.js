@@ -15,7 +15,7 @@ const { collectInputPaths, encodeContentDisposition, stripBasePath } = require('
 const router = require('express').Router();
 
 /**
- * POST /api/files/download
+ * POST /api/download
  *
  * Downloads one or more files/directories.
  *
