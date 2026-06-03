@@ -9,6 +9,7 @@ const { resolvePathWithAccess } = require('../../services/accessManager');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ValidationError, ForbiddenError } = require('../../errors/AppError');
 const preparedDownloads = require('../../services/preparedDownloads');
+const { getChunkedTransferSettings } = require('../../services/settingsService');
 const logger = require('../../utils/logger');
 const { collectInputPaths, encodeContentDisposition, stripBasePath } = require('./utils');
 
@@ -111,23 +112,36 @@ router.post(
       return 'download.zip';
     })();
 
-    const downloadId = crypto.randomBytes(16).toString('hex');
-    const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
-    const userId = req.user?.id || req.guestSession?.id || null;
+    // Check if chunked download (resume infrastructure) is enabled
+    const { effective } = await getChunkedTransferSettings();
+    const resumeEnabled = effective.downloadEnabled;
 
-    // Register as "building" so range-download rejects premature requests
-    preparedDownloads.set(downloadId, {
-      userId,
-      tempPath,
-      filename: archiveName,
-      size: -1,
-      building: true,
-    });
+    // ── Set ALL headers before flushing ──────────────────────────────
+    let downloadId;
+    let fileStream;
+    let totalBytes = 0;
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
-    res.setHeader('X-Download-Id', downloadId);
-    res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
+
+    if (resumeEnabled) {
+      downloadId = crypto.randomBytes(16).toString('hex');
+      const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
+      const userId = req.user?.id || req.guestSession?.id || null;
+
+      preparedDownloads.set(downloadId, {
+        userId,
+        tempPath,
+        filename: archiveName,
+        size: -1,
+        building: true,
+      });
+
+      res.setHeader('X-Download-Id', downloadId);
+      res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
+
+      fileStream = fss.createWriteStream(tempPath);
+    }
 
     // Flush headers immediately so reverse proxies (Cloudflare) see the
     // 200 response before the archive starts building.  Without this,
@@ -135,14 +149,28 @@ router.post(
     // and the proxy may 524 if that takes too long.
     res.flushHeaders();
 
-    const fileStream = fss.createWriteStream(tempPath);
     const archive = archiver('zip', { zlib: { level: 1 } });
-    let totalBytes = 0;
+
+    // ── When downloadEnabled: dual-pipe to response + temp file for resume ──
+    // ── When disabled: pipe only to response (no temp file overhead) ─────────
+    if (fileStream) {
+      archive.pipe(fileStream);
+
+      archive.on('data', (chunk) => {
+        totalBytes += chunk.length;
+      });
+
+      // If the client disconnects mid-stream, stop writing to the response
+      // but let the archive continue writing to the temp file for resume
+      res.on('close', () => {
+        archive.unpipe(res);
+      });
+    }
 
     archive.on('error', (err) => {
       logger.error({ err, downloadId }, 'Streaming archive creation failed');
-      fileStream.destroy(err);
-      preparedDownloads.remove(downloadId);
+      if (fileStream) fileStream.destroy(err);
+      if (downloadId) preparedDownloads.remove(downloadId);
       if (!res.headersSent) {
         res.status(500).json({ error: { message: 'Archive creation failed.' } });
       } else if (!res.writableEnded) {
@@ -150,22 +178,9 @@ router.post(
       }
     });
 
-    // Track total bytes for resume metadata
-    archive.on('data', (chunk) => {
-      totalBytes += chunk.length;
-    });
-
-    // Pipe to temp file (auto-ends fileStream when archive finishes)
-    archive.pipe(fileStream);
-    // Pipe to HTTP response — don't auto-end; we end manually after
-    // the temp file is fully flushed so resume metadata is registered first
-    archive.pipe(res, { end: false });
-
-    // If the client disconnects mid-stream, stop writing to the response
-    // but let the archive continue writing to the temp file for resume
-    res.on('close', () => {
-      archive.unpipe(res);
-    });
+    // Pipe to HTTP response — don't auto-end when resume is enabled;
+    // we end manually after the temp file is fully flushed
+    archive.pipe(res, { end: !resumeEnabled });
 
     targets.forEach(({ relativePath, absolutePath, stats }) => {
       const entryNameRaw = stripBasePath(relativePath, baseNormalized);
@@ -184,26 +199,29 @@ router.post(
 
     await archive.finalize();
 
-    // Wait for the temp file to be fully written before registering
-    await new Promise((resolve, reject) => {
-      fileStream.on('close', resolve);
-      fileStream.on('error', reject);
-    });
+    if (resumeEnabled && fileStream) {
+      const userId = req.user?.id || req.guestSession?.id || null;
+      // Wait for the temp file to be fully written before registering
+      await new Promise((resolve, reject) => {
+        fileStream.on('close', resolve);
+        fileStream.on('error', reject);
+      });
 
-    preparedDownloads.set(downloadId, {
-      userId,
-      tempPath,
-      filename: archiveName,
-      size: totalBytes,
-    });
+      preparedDownloads.set(downloadId, {
+        userId,
+        tempPath: fileStream.path,
+        filename: archiveName,
+        size: totalBytes,
+      });
 
-    logger.info(
-      { downloadId, filename: archiveName, size: totalBytes },
-      'Streaming download completed'
-    );
+      logger.info(
+        { downloadId, filename: archiveName, size: totalBytes },
+        'Streaming download completed with resume support'
+      );
 
-    if (!res.writableEnded) {
-      res.end();
+      if (!res.writableEnded) {
+        res.end();
+      }
     }
   })
 );
