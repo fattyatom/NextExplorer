@@ -100,6 +100,38 @@ function triggerBlobDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 }
 
+/**
+ * Stream a fetch Response body directly to a file on disk using the
+ * File System Access API.  Works for any size because nothing is held
+ * in memory — chunks are written to the writable stream as they arrive.
+ */
+async function streamResponseToDisk(response, filename, onProgress, signal) {
+  const handle = await window.showSaveFilePicker({
+    suggestedName: filename,
+    startIn: 'downloads',
+  });
+  const writable = await handle.createWritable();
+
+  const totalStr = response.headers.get('content-length');
+  const total = totalStr && Number(totalStr) > 0 ? Number(totalStr) : 0;
+
+  try {
+    const reader = response.body.getReader();
+    let received = 0;
+
+    while (true) {
+      checkAborted(signal);
+      const { done, value } = await reader.read();
+      if (done) break;
+      await writable.write(value);
+      received += value.byteLength;
+      onProgress?.(received, total > 0 ? total : received);
+    }
+  } finally {
+    await writable.close();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Chunked download (Range requests, for files > CHUNKED_TRANSFER_THRESHOLD)
 // ---------------------------------------------------------------------------
@@ -147,9 +179,21 @@ async function downloadWithBlobFallback(url, filename, fileSize, onProgress, sig
 
 /**
  * Stream a multi-file/directory zip download.
+ *
  * The server creates the zip and streams bytes as they're produced, avoiding
- * Cloudflare 524 timeouts. A temp file is kept server-side so the download
- * can be resumed via chunked range-download if the stream is interrupted.
+ * Cloudflare 524 timeouts.  A temp file is kept server-side so the download
+ * can be resumed via range-download if the stream is interrupted.
+ *
+ * Download strategy (in order of preference):
+ *  1. File System Access API — writes chunks directly to disk as they arrive.
+ *     Works for any file size with zero memory overhead.  Chromium-only.
+ *  2. Chunked range-download resume — the server keeps building the temp
+ *     file after the client disconnects.  Once ready, the file is downloaded
+ *     via range requests (FSAA when available) or a single native GET that
+ *     the browser's download manager handles (zero memory, any browser).
+ *
+ * No in-memory Blob accumulation is used — even 512 MB is too much for
+ * high-latency or memory-constrained clients.
  */
 export async function streamZipDownload({
   paths,
@@ -178,32 +222,69 @@ export async function streamZipDownload({
   const downloadId = res.headers.get('X-Download-Id');
   const resolvedFilename = parseFilenameFromHeaders(res.headers) || filename;
 
-  try {
-    const blob = await streamResponseToBlob(res, onProgress, signal);
-    triggerBlobDownload(blob, resolvedFilename);
-  } catch (err) {
-    if (err.name === 'AbortError') throw err;
-
-    if (downloadId && chunkedEnabled !== false) {
-      await resumeWithChunkedDownload(downloadId, resolvedFilename, onProgress, signal, chunkSize);
+  // --- Path 1: File System Access API — stream directly to disk (any size) ---
+  if (supportsFileSystemAccess) {
+    try {
+      await streamResponseToDisk(res, resolvedFilename, onProgress, signal);
       return;
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      // SecurityError / NotAllowedError → user-gesture expired or user
+      // cancelled the save picker.  Fall through to chunked resume.
+      // Other errors → response partially consumed; also try resume.
+      if (downloadId && chunkedEnabled !== false) {
+        await resumeWithChunkedDownload(downloadId, resolvedFilename, onProgress, signal, chunkSize);
+        return;
+      }
+      throw err;
     }
-    throw err;
   }
+
+  // --- Path 2: No FSAA — abort stream, let server finish the temp file,
+  //     then download it via range-download (native GET, zero memory). ---
+  if (downloadId && chunkedEnabled !== false) {
+    // Discard the response body so the connection closes cleanly.
+    // The server detects the disconnect and continues writing to the temp file.
+    res.body?.cancel().catch(() => {});
+    await resumeWithChunkedDownload(downloadId, resolvedFilename, onProgress, signal, chunkSize);
+    return;
+  }
+
+  // Last resort (chunked disabled, no FSAA): in-memory blob — only viable
+  // for small zips; large ones will exhaust memory.
+  const blob = await streamResponseToBlob(res, onProgress, signal);
+  triggerBlobDownload(blob, resolvedFilename);
 }
 
 const RESUME_POLL_INTERVAL_MS = 3000;
 const RESUME_MAX_ATTEMPTS = 40;
 
+/**
+ * Trigger a native browser download via the range-download endpoint.
+ * The browser's download manager streams the file to disk — zero JS memory.
+ * No progress tracking, but works for any size on any browser.
+ */
+function triggerNativeRangeDownload(downloadId, filename) {
+  const url = buildDownloadUrl(null, downloadId);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 async function resumeWithChunkedDownload(downloadId, filename, onProgress, signal, chunkSize) {
   const url = buildDownloadUrl(null, downloadId);
 
+  // Poll until the server has finished building the temp file
+  let fileSize;
   for (let attempt = 0; attempt < RESUME_MAX_ATTEMPTS; attempt++) {
     checkAborted(signal);
     try {
-      const fileSize = await fetchFileSize(url, signal);
-      await downloadWithBlobFallback(url, filename, fileSize, onProgress, signal, chunkSize);
-      return;
+      fileSize = await fetchFileSize(url, signal);
+      break;
     } catch (err) {
       if (err.name === 'AbortError') throw err;
       const isNotReady =
@@ -212,6 +293,25 @@ async function resumeWithChunkedDownload(downloadId, filename, onProgress, signa
       await new Promise((r) => setTimeout(r, RESUME_POLL_INTERVAL_MS));
     }
   }
+
+  // Prefer FSAA — writes each chunk directly to disk (any size)
+  if (supportsFileSystemAccess) {
+    try {
+      await downloadWithFileSystemAccess(url, filename, fileSize, onProgress, signal, chunkSize);
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      // SecurityError / NotAllowedError → gesture expired; fall through
+      if (err.name !== 'SecurityError' && err.name !== 'NotAllowedError') throw err;
+    }
+  }
+
+  // Native browser download — zero memory, works for any size.
+  // Progress tracking isn't possible here but the browser's own download
+  // manager shows its own progress bar.
+  triggerNativeRangeDownload(downloadId, filename);
+  // Report completion so the transfer tracker doesn't stay spinning
+  onProgress?.(fileSize, fileSize);
 }
 
 /**
