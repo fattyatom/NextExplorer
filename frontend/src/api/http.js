@@ -79,15 +79,12 @@ const requestJson = async (endpoint, options = {}) => {
   return response.json();
 };
 
-const toPathSegments = (path) => {
-  if (Array.isArray(path)) return path.flatMap((s) => String(s).split('/')).filter(Boolean);
-  return typeof path === 'string' ? path.split('/').filter(Boolean) : [];
-};
-
 const pathParamToString = (param) => {
   if (Array.isArray(param)) return param.join('/');
   return typeof param === 'string' ? param : '';
 };
+
+const toPathSegments = (path) => pathParamToString(path).split('/').filter(Boolean);
 
 export {
   apiBase,
