@@ -1,6 +1,9 @@
 import { computed } from 'vue';
 import { useFileStore } from '@/stores/fileStore';
+import { useAppSettings } from '@/stores/appSettings';
 import { normalizePath } from '@/api';
+import { download, streamZipDownload } from '@/utils/chunkedDownload';
+import { useTransferStore } from '@/stores/transferStore';
 
 function isEditableElement(el) {
   if (!el) return false;
@@ -109,10 +112,48 @@ export function useFileActions() {
     await fileStore.del();
   };
 
-  const runDownload = () => {
+  const trackedDownload = async (name, size, downloadFn, statusText) => {
+    const store = useTransferStore();
+    const id = store.add('download', name, size || 0, statusText);
+    try {
+      const t = store.transfers.get(id);
+      await downloadFn(
+        (downloaded, total) => store.updateProgress(id, downloaded, total),
+        t?.abortController?.signal
+      );
+      store.complete(id);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      store.fail(id, err.message || 'Download failed');
+    }
+  };
+
+  const runDownload = async () => {
     if (!hasSelection.value) return;
 
-    const paths = selectedItems.value
+    const ct = useAppSettings().systemSettings?.chunkedTransfers;
+    const chunkedEnabled = ct?.downloadEnabled !== false;
+
+    const items = selectedItems.value;
+    const currentPath = normalizePath(fileStore.getCurrentPath || '');
+
+    const isSingleFile =
+      items.length === 1 &&
+      items[0].kind !== 'directory' &&
+      items[0].kind !== 'volume';
+
+    if (isSingleFile) {
+      const item = items[0];
+      const filePath = resolveItemPath(item);
+      if (!filePath) return;
+
+      await trackedDownload(item.name, item.size, (onProgress, signal) =>
+        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal })
+      );
+      return;
+    }
+
+    const paths = items
       .map((item) => {
         const parent = normalizePath(item.path || '');
         const combined = parent ? `${parent}/${item.name}` : item.name;
@@ -122,34 +163,18 @@ export function useFileActions() {
 
     if (!paths.length) return;
 
-    const currentPath = normalizePath(fileStore.getCurrentPath || '');
+    const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
-    // Create a hidden form to submit the download request
-    // This triggers the browser's native download with progress bar
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/api/download';
-    form.style.display = 'none';
-
-    // Add each path as a separate 'paths' field (form arrays)
-    paths.forEach((path) => {
-      const pathInput = document.createElement('input');
-      pathInput.type = 'hidden';
-      pathInput.name = 'paths';
-      pathInput.value = path;
-      form.appendChild(pathInput);
+    await trackedDownload(zipName, 0, async (onProgress, signal) => {
+      await streamZipDownload({
+        paths,
+        basePath: currentPath,
+        filename: zipName,
+        onProgress,
+        signal,
+        chunkedEnabled,
+      });
     });
-
-    // Add basePath
-    const basePathInput = document.createElement('input');
-    basePathInput.type = 'hidden';
-    basePathInput.name = 'basePath';
-    basePathInput.value = currentPath;
-    form.appendChild(basePathInput);
-
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
   };
 
   return {

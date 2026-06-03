@@ -63,6 +63,83 @@ const sanitizeAccessRules = (rules = []) => {
 };
 
 /**
+ * Parse an env var as a boolean.  Returns undefined when the var is unset/empty.
+ */
+const parseBoolEnv = (name) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
+  return raw === '1' || raw.toLowerCase() === 'true';
+};
+
+/**
+ * Parse an env var as a positive integer.  Returns undefined when unset/empty/invalid.
+ */
+const parseIntEnv = (name) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+};
+
+/**
+ * Sanitize chunked transfer settings
+ */
+const sanitizeChunkedTransfers = (ct = {}) => {
+  return {
+    uploadEnabled:
+      typeof ct.uploadEnabled === 'boolean' ? ct.uploadEnabled : true,
+    downloadEnabled:
+      typeof ct.downloadEnabled === 'boolean' ? ct.downloadEnabled : true,
+    chunkSizeMB: Number.isFinite(ct.chunkSizeMB)
+      ? Math.max(1, Math.min(100, Math.floor(ct.chunkSizeMB)))
+      : 20,
+  };
+};
+
+/**
+ * Get the effective chunked transfer settings, merging DB values with env overrides.
+ * Returns { effective, envLocked } where envLocked flags which fields are locked by env.
+ */
+const getChunkedTransferSettings = async () => {
+  // Read DB-stored values (default to built-in defaults)
+  let dbValues = {};
+  try {
+    const db = await getDb();
+    const row = db
+      .prepare('SELECT value FROM system_settings WHERE category = ? AND key = ?')
+      .get('system', 'chunkedTransfers');
+    if (row) {
+      dbValues = JSON.parse(row.value);
+    }
+  } catch {
+    // Use defaults
+  }
+
+  const sanitized = sanitizeChunkedTransfers(dbValues);
+
+  // Apply env overrides
+  const envUpload = parseBoolEnv('CHUNKED_UPLOAD_ENABLED');
+  const envDownload = parseBoolEnv('CHUNKED_DOWNLOAD_ENABLED');
+  const envChunkSize = parseIntEnv('CHUNK_SIZE_MB');
+
+  const envLocked = {
+    uploadEnabled: envUpload !== undefined,
+    downloadEnabled: envDownload !== undefined,
+    chunkSizeMB: envChunkSize !== undefined,
+  };
+
+  const effective = {
+    uploadEnabled: envUpload !== undefined ? envUpload : sanitized.uploadEnabled,
+    downloadEnabled: envDownload !== undefined ? envDownload : sanitized.downloadEnabled,
+    chunkSizeMB: envChunkSize !== undefined
+      ? Math.max(1, Math.min(100, envChunkSize))
+      : sanitized.chunkSizeMB,
+  };
+
+  return { effective, envLocked };
+};
+
+/**
  * Sanitize branding settings
  */
 const sanitizeBranding = (branding = {}) => {
@@ -208,11 +285,20 @@ const getSettingsForUser = async (user) => {
     const userSettings = await getUserSettings(user.id);
     result.user = userSettings;
 
+    // Chunked transfer settings are needed by all authenticated users
+    // (the frontend uses them to decide whether to chunk uploads/downloads).
+    const { effective, envLocked } = await getChunkedTransferSettings();
+
     const isAdmin = Array.isArray(user.roles) && user.roles.includes('admin');
     if (isAdmin) {
       const systemSettings = await getSystemSettings();
       result.thumbnails = systemSettings.thumbnails;
       result.access = systemSettings.access;
+      // Admin gets envLocked flags so the UI can disable locked fields
+      result.chunkedTransfers = { ...effective, envLocked };
+    } else {
+      // Non-admin gets effective values only (no envLocked)
+      result.chunkedTransfers = effective;
     }
   }
 
@@ -297,6 +383,8 @@ const setSystemSetting = async (category, key, value) => {
     };
   } else if (key === 'branding') {
     sanitizedValue = sanitizeBranding(value);
+  } else if (key === 'chunkedTransfers') {
+    sanitizedValue = sanitizeChunkedTransfers(value);
   }
 
   const valueJson = JSON.stringify(sanitizedValue);
@@ -393,6 +481,7 @@ module.exports = {
   getSettingsForUser,
   setUserSetting,
   setSystemSetting,
+  getChunkedTransferSettings,
   // Legacy methods for backward compatibility
   getSettings,
   setSettings,

@@ -1,139 +1,228 @@
 const path = require('path');
 const fs = require('fs/promises');
+const fss = require('fs');
+const crypto = require('crypto');
+const os = require('os');
 const archiver = require('archiver');
 const { normalizeRelativePath } = require('../../utils/pathUtils');
 const { resolvePathWithAccess } = require('../../services/accessManager');
 const asyncHandler = require('../../utils/asyncHandler');
 const { ValidationError, ForbiddenError } = require('../../errors/AppError');
+const preparedDownloads = require('../../services/preparedDownloads');
+const { getChunkedTransferSettings } = require('../../services/settingsService');
 const logger = require('../../utils/logger');
 const { collectInputPaths, encodeContentDisposition, stripBasePath } = require('./utils');
 
 const router = require('express').Router();
 
-const handleDownloadRequest = async (paths, req, res, basePath = '') => {
-  if (!Array.isArray(paths) || paths.length === 0) {
-    throw new ValidationError('At least one path is required.');
-  }
-
-  const normalizedPaths = [
-    ...new Set(paths.map((item) => normalizeRelativePath(item)).filter(Boolean)),
-  ];
-  if (normalizedPaths.length === 0) {
-    throw new ValidationError('No valid paths provided.');
-  }
-
-  const baseNormalized = basePath ? normalizeRelativePath(basePath) : '';
-
-  const context = { user: req.user, guestSession: req.guestSession };
-
-  const targets = await Promise.all(
-    normalizedPaths.map(async (relativePath) => {
-      const { accessInfo, resolved } = await resolvePathWithAccess(context, relativePath);
-
-      if (
-        !accessInfo ||
-        !accessInfo.canAccess ||
-        !accessInfo.canRead ||
-        !accessInfo.canDownload ||
-        !resolved
-      ) {
-        throw new ForbiddenError(accessInfo?.denialReason || 'Download not allowed.');
-      }
-
-      const { absolutePath, relativePath: logicalPath } = resolved;
-      const stats = await fs.stat(absolutePath);
-      return { relativePath: logicalPath, absolutePath, stats };
-    })
-  );
-
-  const hasDirectory = targets.some(({ stats }) => stats.isDirectory());
-  const shouldArchive = hasDirectory || targets.length > 1;
-
-  if (!shouldArchive) {
-    const [{ absolutePath, relativePath }] = targets;
-    const filename = (() => {
-      if (!baseNormalized) {
-        return path.basename(absolutePath);
-      }
-
-      const relativePosix = stripBasePath(relativePath, baseNormalized);
-      const basename = relativePosix.split('/').pop();
-      return basename || path.basename(absolutePath);
-    })();
-    // Allow dotfiles to be downloaded (by default Express blocks them)
-    res.download(absolutePath, filename, { dotfiles: 'allow' }, (err) => {
-      if (err) {
-        logger.error({ err }, 'Download failed');
-        if (!res.headersSent) {
-          res.status(500).send('Failed to download file.');
-        }
-      }
-    });
-    return;
-  }
-
-  const archiveName = (() => {
-    if (targets.length === 1) {
-      const segments = targets[0].relativePath
-        ? targets[0].relativePath.split(path.sep).filter(Boolean)
-        : [];
-      const baseName =
-        segments.length > 0
-          ? segments[segments.length - 1]
-          : path.basename(targets[0].absolutePath);
-      return `${baseName || 'download'}.zip`;
-    }
-
-    if (baseNormalized) {
-      const segments = baseNormalized.split(path.sep).filter(Boolean);
-      const baseName = segments.length > 0 ? segments[segments.length - 1] : baseNormalized;
-      if (baseName) {
-        return `${baseName}.zip`;
-      }
-    }
-
-    return 'download.zip';
-  })();
-
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
-
-  const archive = archiver('zip', { zlib: { level: 1 } });
-  archive.on('error', (archiveError) => {
-    logger.error({ err: archiveError }, 'Archive creation failed');
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to create archive.' });
-    } else {
-      res.end();
-    }
-  });
-
-  archive.pipe(res);
-
-  targets.forEach(({ relativePath, absolutePath, stats }) => {
-    const entryNameRaw = stripBasePath(relativePath, baseNormalized);
-    const entryName = entryNameRaw
-      ? entryNameRaw.replace(/\\/g, '/').replace(/^\/+/, '')
-      : path.basename(absolutePath);
-
-    if (stats.isDirectory()) {
-      archive.directory(absolutePath, entryName);
-    } else {
-      archive.file(absolutePath, {
-        name: entryName || path.basename(absolutePath),
-      });
-    }
-  });
-
-  await archive.finalize();
-};
-
+/**
+ * POST /api/download
+ *
+ * Downloads one or more files/directories.
+ *
+ * Single file  → streams the file directly via res.download().
+ * Multi / dir  → creates a zip on the fly with archiver, dual-piped to both
+ *                the HTTP response and a server-side temp file.  The temp file
+ *                enables range-download resume if the stream breaks.
+ *                An X-Download-Id header lets the client locate the temp file.
+ *
+ * Headers are flushed immediately via res.flushHeaders() so that reverse
+ * proxies (Cloudflare, nginx) see the response before the archive starts
+ * building — this prevents 524 timeout errors on large directories.
+ */
 router.post(
   '/download',
   asyncHandler(async (req, res) => {
     const basePath = req.body?.basePath || req.body?.currentPath || '';
     const paths = collectInputPaths(req.body?.path, req.body?.paths, req.body?.items);
-    await handleDownloadRequest(paths, req, res, basePath);
+
+    if (!Array.isArray(paths) || paths.length === 0) {
+      throw new ValidationError('At least one path is required.');
+    }
+
+    const normalizedPaths = [
+      ...new Set(paths.map((item) => normalizeRelativePath(item)).filter(Boolean)),
+    ];
+    if (normalizedPaths.length === 0) {
+      throw new ValidationError('No valid paths provided.');
+    }
+
+    const baseNormalized = basePath ? normalizeRelativePath(basePath) : '';
+    const context = { user: req.user, guestSession: req.guestSession };
+
+    const targets = await Promise.all(
+      normalizedPaths.map(async (relativePath) => {
+        const { accessInfo, resolved } = await resolvePathWithAccess(context, relativePath);
+        if (
+          !accessInfo ||
+          !accessInfo.canAccess ||
+          !accessInfo.canRead ||
+          !accessInfo.canDownload ||
+          !resolved
+        ) {
+          throw new ForbiddenError(accessInfo?.denialReason || 'Download not allowed.');
+        }
+        const { absolutePath, relativePath: logicalPath } = resolved;
+        const stats = await fs.stat(absolutePath);
+        return { relativePath: logicalPath, absolutePath, stats };
+      })
+    );
+
+    // ── Single-file fast path ──────────────────────────────────────────
+    const hasDirectory = targets.some(({ stats }) => stats.isDirectory());
+    const shouldArchive = hasDirectory || targets.length > 1;
+
+    if (!shouldArchive) {
+      const [{ absolutePath, relativePath }] = targets;
+      const filename = (() => {
+        if (!baseNormalized) return path.basename(absolutePath);
+        const relativePosix = stripBasePath(relativePath, baseNormalized);
+        const basename = relativePosix.split('/').pop();
+        return basename || path.basename(absolutePath);
+      })();
+      // Allow dotfiles to be downloaded (Express blocks them by default)
+      res.download(absolutePath, filename, { dotfiles: 'allow' }, (err) => {
+        if (err) {
+          logger.error({ err }, 'Download failed');
+          if (!res.headersSent) {
+            res.status(500).send('Failed to download file.');
+          }
+        }
+      });
+      return;
+    }
+
+    // ── Archive (multi-file / directory) ───────────────────────────────
+    const archiveName = (() => {
+      if (targets.length === 1) {
+        const segments = targets[0].relativePath
+          ? targets[0].relativePath.split(path.sep).filter(Boolean)
+          : [];
+        const baseName =
+          segments.length > 0
+            ? segments[segments.length - 1]
+            : path.basename(targets[0].absolutePath);
+        return `${baseName || 'download'}.zip`;
+      }
+      if (baseNormalized) {
+        const segments = baseNormalized.split(path.sep).filter(Boolean);
+        const baseName = segments.length > 0 ? segments[segments.length - 1] : baseNormalized;
+        if (baseName) return `${baseName}.zip`;
+      }
+      return 'download.zip';
+    })();
+
+    // Check if chunked download (resume infrastructure) is enabled
+    const { effective } = await getChunkedTransferSettings();
+    const resumeEnabled = effective.downloadEnabled;
+
+    // ── Set ALL headers before flushing ──────────────────────────────
+    let downloadId;
+    let fileStream;
+    let totalBytes = 0;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
+
+    if (resumeEnabled) {
+      downloadId = crypto.randomBytes(16).toString('hex');
+      const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
+      const userId = req.user?.id || req.guestSession?.id || null;
+
+      preparedDownloads.set(downloadId, {
+        userId,
+        tempPath,
+        filename: archiveName,
+        size: -1,
+        building: true,
+      });
+
+      res.setHeader('X-Download-Id', downloadId);
+      res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
+
+      fileStream = fss.createWriteStream(tempPath);
+    }
+
+    // Flush headers immediately so reverse proxies (Cloudflare) see the
+    // 200 response before the archive starts building.  Without this,
+    // headers stay buffered until archiver pipes its first data chunk,
+    // and the proxy may 524 if that takes too long.
+    res.flushHeaders();
+
+    const archive = archiver('zip', { zlib: { level: 1 } });
+
+    // ── When downloadEnabled: dual-pipe to response + temp file for resume ──
+    // ── When disabled: pipe only to response (no temp file overhead) ─────────
+    if (fileStream) {
+      archive.pipe(fileStream);
+
+      archive.on('data', (chunk) => {
+        totalBytes += chunk.length;
+      });
+
+      // If the client disconnects mid-stream, stop writing to the response
+      // but let the archive continue writing to the temp file for resume
+      res.on('close', () => {
+        archive.unpipe(res);
+      });
+    }
+
+    archive.on('error', (err) => {
+      logger.error({ err, downloadId }, 'Streaming archive creation failed');
+      if (fileStream) fileStream.destroy(err);
+      if (downloadId) preparedDownloads.remove(downloadId);
+      if (!res.headersSent) {
+        res.status(500).json({ error: { message: 'Archive creation failed.' } });
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    });
+
+    // Pipe to HTTP response — don't auto-end when resume is enabled;
+    // we end manually after the temp file is fully flushed
+    archive.pipe(res, { end: !resumeEnabled });
+
+    targets.forEach(({ relativePath, absolutePath, stats }) => {
+      const entryNameRaw = stripBasePath(relativePath, baseNormalized);
+      const entryName = entryNameRaw
+        ? entryNameRaw.replace(/\\/g, '/').replace(/^\/+/, '')
+        : path.basename(absolutePath);
+
+      if (stats.isDirectory()) {
+        archive.directory(absolutePath, entryName);
+      } else {
+        archive.file(absolutePath, {
+          name: entryName || path.basename(absolutePath),
+        });
+      }
+    });
+
+    await archive.finalize();
+
+    if (resumeEnabled && fileStream) {
+      const userId = req.user?.id || req.guestSession?.id || null;
+      // Wait for the temp file to be fully written before registering
+      await new Promise((resolve, reject) => {
+        fileStream.on('close', resolve);
+        fileStream.on('error', reject);
+      });
+
+      preparedDownloads.set(downloadId, {
+        userId,
+        tempPath: fileStream.path,
+        filename: archiveName,
+        size: totalBytes,
+      });
+
+      logger.info(
+        { downloadId, filename: archiveName, size: totalBytes },
+        'Streaming download completed with resume support'
+      );
+
+      if (!res.writableEnded) {
+        res.end();
+      }
+    }
   })
 );
 

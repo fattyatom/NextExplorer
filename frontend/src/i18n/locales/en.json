@@ -377,7 +377,8 @@
       "filesThumbnails": "Files & Thumbnails",
       "security": "Security",
       "accessControl": "Access Control",
-      "adminUsers": "User Management"
+      "adminUsers": "User Management",
+      "transfers": "Transfers"
     },
     "about": {
       "subtitle": "View build information for this application.",
@@ -490,6 +491,17 @@
       "volumePath": "Volume Path",
       "pathCannotChange": "The path cannot be changed after creation. Remove this volume and create a new one if needed.",
       "accessMode": "Access Mode"
+    },
+    "transfers": {
+      "title": "Transfer Settings",
+      "subtitle": "Configure chunked file transfers for large uploads and downloads.",
+      "uploadEnabled": "Chunked uploads",
+      "uploadEnabledHelp": "Split large uploads into chunks to bypass reverse-proxy size limits.",
+      "downloadEnabled": "Chunked downloads",
+      "downloadEnabledHelp": "Split large downloads into chunks to avoid proxy timeout errors.",
+      "chunkSize": "Chunk size",
+      "chunkSizeHelp": "Size of each chunk in megabytes (1–100). Default is 20 MB.",
+      "envLocked": "Locked by environment variable."
     }
   },
   "share": {
