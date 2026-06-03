@@ -3,19 +3,20 @@ const fs = require('fs/promises');
 const fss = require('fs');
 const crypto = require('crypto');
 const os = require('os');
+const { Transform } = require('stream');
 const archiver = require('archiver');
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { resolvePathWithAccess } = require('../services/accessManager');
 const asyncHandler = require('../utils/asyncHandler');
 const { ValidationError, ForbiddenError } = require('../errors/AppError');
-const { collectInputPaths, stripBasePath } = require('./files/utils');
+const { collectInputPaths, encodeContentDisposition, stripBasePath } = require('./files/utils');
 const preparedDownloads = require('../services/preparedDownloads');
 const logger = require('../utils/logger');
 
 const router = require('express').Router();
 
 router.post(
-  '/download/prepare',
+  '/download/zip-stream',
   asyncHandler(async (req, res) => {
     const basePath = req.body?.basePath || req.body?.currentPath || '';
     const paths = collectInputPaths(req.body?.path, req.body?.paths, req.body?.items);
@@ -73,10 +74,74 @@ router.post(
 
     const downloadId = crypto.randomBytes(16).toString('hex');
     const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
-    const output = fss.createWriteStream(tempPath);
+    const userId = req.user?.id || req.guestSession?.id || null;
+
+    preparedDownloads.set(downloadId, {
+      userId,
+      tempPath,
+      filename: archiveName,
+      size: -1,
+      building: true,
+    });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
+    res.setHeader('X-Download-Id', downloadId);
+    res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const fileStream = fss.createWriteStream(tempPath);
     const archive = archiver('zip', { zlib: { level: 1 } });
 
-    archive.pipe(output);
+    let clientDisconnected = false;
+    let totalBytes = 0;
+    req.on('close', () => {
+      clientDisconnected = true;
+    });
+
+    const tee = new Transform({
+      transform(chunk, _encoding, callback) {
+        totalBytes += chunk.length;
+        fileStream.write(chunk, (err) => {
+          if (err) return callback(err);
+          if (!clientDisconnected && !res.writableEnded) {
+            res.write(chunk);
+          }
+          callback(null, null);
+        });
+      },
+      flush(callback) {
+        fileStream.end(() => {
+          preparedDownloads.set(downloadId, {
+            userId,
+            tempPath,
+            filename: archiveName,
+            size: totalBytes,
+          });
+          logger.info(
+            { downloadId, filename: archiveName, size: totalBytes, clientDisconnected },
+            'Streaming download completed'
+          );
+          if (!clientDisconnected && !res.writableEnded) {
+            res.end();
+          }
+          callback();
+        });
+      },
+    });
+
+    archive.on('error', (err) => {
+      logger.error({ err, downloadId }, 'Streaming archive creation failed');
+      fileStream.destroy(err);
+      preparedDownloads.remove(downloadId);
+      if (!res.headersSent) {
+        res.status(500).json({ error: { message: 'Archive creation failed.' } });
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    });
+
+    archive.pipe(tee);
 
     targets.forEach(({ relativePath, absolutePath, stats }) => {
       const entryNameRaw = stripBasePath(relativePath, baseNormalized);
@@ -95,23 +160,9 @@ router.post(
 
     await archive.finalize();
     await new Promise((resolve, reject) => {
-      output.on('close', resolve);
-      output.on('error', reject);
+      tee.on('finish', resolve);
+      tee.on('error', reject);
     });
-
-    const zipStats = await fs.stat(tempPath);
-    const userId = req.user?.id || req.guestSession?.id || null;
-
-    preparedDownloads.set(downloadId, {
-      userId,
-      tempPath,
-      filename: archiveName,
-      size: zipStats.size,
-    });
-
-    logger.info({ downloadId, filename: archiveName, size: zipStats.size }, 'Download prepared');
-
-    res.json({ downloadId, filename: archiveName, size: zipStats.size });
   })
 );
 

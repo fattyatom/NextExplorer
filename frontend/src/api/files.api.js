@@ -1,4 +1,4 @@
-import { requestJson, requestRaw, normalizePath, encodePath, buildUrl } from './http';
+import { requestJson, normalizePath, encodePath, buildUrl } from './http';
 
 async function browse(path = '') {
   const normalizedPath = normalizePath(path);
@@ -106,27 +106,6 @@ async function fetchMetadata(relativePath) {
   return requestJson(`/api/metadata/${encodedPath}`, { method: 'GET' });
 }
 
-async function downloadItems(paths, basePath = '') {
-  const normalizedList = (Array.isArray(paths) ? paths : [paths])
-    .map((item) => normalizePath(item))
-    .filter(Boolean);
-
-  if (normalizedList.length === 0) {
-    throw new Error('At least one path is required for download.');
-  }
-
-  const normalizedBase = normalizePath(basePath || '');
-
-  // Use requestRaw as this returns a file blob, not JSON
-  return requestRaw('/api/download', {
-    method: 'POST',
-    body: JSON.stringify({
-      items: normalizedList,
-      basePath: normalizedBase,
-    }),
-  });
-}
-
 async function extractZip(relativePath) {
   const normalizedPath = normalizePath(relativePath);
   if (!normalizedPath) {
@@ -221,7 +200,6 @@ export {
   getRawFileUrl,
   fetchThumbnail,
   fetchMetadata,
-  downloadItems,
   extractZip,
   compressToZip,
   search,

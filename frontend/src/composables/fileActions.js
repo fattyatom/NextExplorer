@@ -2,7 +2,7 @@ import { computed } from 'vue';
 import { useFileStore } from '@/stores/fileStore';
 import { useAppSettings } from '@/stores/appSettings';
 import { normalizePath } from '@/api';
-import { download, prepareDownload } from '@/utils/chunkedDownload';
+import { download, streamZipDownload } from '@/utils/chunkedDownload';
 import { useTransferStore } from '@/stores/transferStore';
 
 function isEditableElement(el) {
@@ -167,17 +167,16 @@ export function useFileActions() {
     const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
     await trackedDownload(zipName, 0, async (onProgress, signal) => {
-      const prepared = await prepareDownload(paths, currentPath, signal);
-      await download({
-        downloadId: prepared.downloadId,
-        filename: prepared.filename,
-        size: prepared.size,
+      await streamZipDownload({
+        paths,
+        basePath: currentPath,
+        filename: zipName,
         onProgress,
         signal,
         chunkSize,
         chunkedEnabled,
       });
-    }, 'Preparing zip…');
+    });
   };
 
   return {
