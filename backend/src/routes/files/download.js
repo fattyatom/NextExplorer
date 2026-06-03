@@ -112,13 +112,19 @@ router.post(
     const tempPath = path.join(os.tmpdir(), `nextexplorer-dl-${downloadId}.zip`);
     const userId = req.user?.id || req.guestSession?.id || null;
 
-    // Register as "building" so range-download rejects premature requests
+    // ── Build the zip in the background ─────────────────────────────
+    const fileStream = fss.createWriteStream(tempPath);
+    const archive = archiver('zip', { zlib: { level: 1 } });
+
+    // Register as "building" so range-download returns 202 (not ready).
+    // Store the archive ref so DELETE /api/range-download can abort it.
     preparedDownloads.set(downloadId, {
       userId,
       tempPath,
       filename: archiveName,
       size: -1,
       building: true,
+      archive,
     });
 
     // ── Return immediately — the client polls /api/range-download ────
@@ -127,9 +133,6 @@ router.post(
     // idle-read, nginx proxy_read_timeout, etc.).
     res.status(202).json({ downloadId, filename: archiveName });
 
-    // ── Build the zip in the background ─────────────────────────────
-    const fileStream = fss.createWriteStream(tempPath);
-    const archive = archiver('zip', { zlib: { level: 1 } });
     let totalBytes = 0;
 
     archive.on('data', (chunk) => {

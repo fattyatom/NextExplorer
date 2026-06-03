@@ -129,6 +129,12 @@ async function fetchFileSize(url, signal) {
     headers: getCommonHeaders(),
     signal,
   });
+  // 202 = accepted but still building — caller should retry
+  if (res.status === 202) {
+    const err = new Error('still being prepared');
+    err.retryable = true;
+    throw err;
+  }
   if (!res.ok) {
     throw new Error(`HEAD request failed: ${res.status} ${res.statusText}`);
   }
@@ -139,23 +145,43 @@ async function fetchFileSize(url, signal) {
   return size;
 }
 
+async function cancelPreparedDownload(downloadId) {
+  try {
+    const url = buildRangeDownloadUrl(null, downloadId);
+    await fetch(url, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: getCommonHeaders(),
+    });
+  } catch {
+    // Best-effort — server TTL will clean up regardless
+  }
+}
+
 async function resumeWithRangeDownload(downloadId, filename, onProgress, signal) {
   const url = buildRangeDownloadUrl(null, downloadId);
 
+  // If the caller aborts, cancel the server-side build + temp file
+  const onAbort = () => cancelPreparedDownload(downloadId);
+  signal?.addEventListener('abort', onAbort, { once: true });
+
   // Poll until the server has finished building the temp file
   let fileSize;
-  for (let attempt = 0; attempt < RESUME_MAX_ATTEMPTS; attempt++) {
-    checkAborted(signal);
-    try {
-      fileSize = await fetchFileSize(url, signal);
-      break;
-    } catch (err) {
-      if (err.name === 'AbortError') throw err;
-      const isNotReady =
-        err.message?.includes('404') || err.message?.includes('still being prepared');
-      if (!isNotReady || attempt === RESUME_MAX_ATTEMPTS - 1) throw err;
-      await new Promise((r) => setTimeout(r, RESUME_POLL_INTERVAL_MS));
+  try {
+    for (let attempt = 0; attempt < RESUME_MAX_ATTEMPTS; attempt++) {
+      checkAborted(signal);
+      try {
+        fileSize = await fetchFileSize(url, signal);
+        break;
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+        const isNotReady = err.retryable || err.message?.includes('still being prepared');
+        if (!isNotReady || attempt === RESUME_MAX_ATTEMPTS - 1) throw err;
+        await new Promise((r) => setTimeout(r, RESUME_POLL_INTERVAL_MS));
+      }
     }
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
   }
 
   // Prefer FSAA — stream the completed file to disk
@@ -246,6 +272,7 @@ export async function download({ path: filePath, filename, size, onProgress, sig
  * @param {string}   opts.basePath    - Common base path for entry names
  * @param {string}   opts.filename    - Suggested zip filename
  * @param {Function}[opts.onProgress] - (downloaded, total) callback
+ * @param {Function}[opts.onStatus]   - (statusText) callback for UI status updates
  * @param {AbortSignal}[opts.signal]  - Cancellation signal
  */
 export async function streamZipDownload({
@@ -253,6 +280,7 @@ export async function streamZipDownload({
   basePath,
   filename,
   onProgress,
+  onStatus,
   signal,
 }) {
   checkAborted(signal);
@@ -279,6 +307,9 @@ export async function streamZipDownload({
     throw new Error('Server did not return a downloadId');
   }
 
-  // 2. Poll until the zip is built, then download the completed file
+  // 2. Tell the UI we're preparing the archive
+  onStatus?.('Preparing zip…');
+
+  // 3. Poll until the zip is built, then download the completed file
   await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal);
 }

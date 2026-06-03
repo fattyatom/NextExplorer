@@ -164,7 +164,7 @@ describe('POST /api/download', () => {
       expect(entries).toContain('photos/b.txt');
     });
 
-    it('rejects range-download while still building', async () => {
+    it('returns 202 while still building, then 200 when ready', async () => {
       const { app } = buildApp({ user: testUser });
       const postRes = await request(app)
         .post('/api/download')
@@ -173,12 +173,11 @@ describe('POST /api/download', () => {
       const { downloadId } = postRes.body;
 
       // Immediately try range-download (before build finishes)
-      // This may or may not be "building" depending on speed, so just
-      // verify the endpoint responds without crashing
+      // Depending on speed it may already be done (200) or still building (202)
       const getRes = await request(app)
         .head(`/api/range-download?downloadId=${downloadId}`);
 
-      expect([200, 404]).toContain(getRes.status);
+      expect([200, 202]).toContain(getRes.status);
     });
   });
 
