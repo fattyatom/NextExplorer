@@ -115,12 +115,12 @@ function triggerNativeDownload(url, filename) {
 }
 
 // ---------------------------------------------------------------------------
-// Resume helpers — used when the initial stream fails and a server-side
-// temp file exists (identified by downloadId).
+// Resume helpers — used when the client disconnects mid-stream and a
+// server-side temp file exists (identified by downloadId).
 // ---------------------------------------------------------------------------
 
 const RESUME_POLL_INTERVAL_MS = 3000;
-const RESUME_MAX_ATTEMPTS = 40;
+const RESUME_MAX_ATTEMPTS = 200; // ~10 minutes to build large archives
 
 async function fetchFileSize(url, signal) {
   const res = await fetch(url, {
@@ -235,9 +235,10 @@ export async function download({ path: filePath, filename, size, onProgress, sig
 /**
  * Download multiple files / directories as a streaming zip.
  *
- * The server creates the zip and streams bytes as they're produced, avoiding
- * Cloudflare 524 timeouts.  A temp file is kept server-side so the download
- * can be resumed via range-download if the stream is interrupted.
+ * The server creates the zip and streams bytes as they're produced.
+ * Headers are flushed immediately so reverse proxies don't timeout.
+ * A temp file is kept server-side so the download can be resumed via
+ * range-download if the stream is interrupted.
  *
  * Strategy (in order of preference):
  *  1. FSAA — stream zip bytes directly to disk as they arrive (any size).
