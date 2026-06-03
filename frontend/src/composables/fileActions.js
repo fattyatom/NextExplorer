@@ -118,7 +118,8 @@ export function useFileActions() {
       const t = store.transfers.get(id);
       await downloadFn(
         (downloaded, total) => store.updateProgress(id, downloaded, total),
-        t?.abortController?.signal
+        t?.abortController?.signal,
+        (text) => store.updateStatus(id, text)
       );
       store.complete(id);
     } catch (err) {
@@ -161,15 +162,16 @@ export function useFileActions() {
 
     const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
-    await trackedDownload(zipName, 0, async (onProgress, signal) => {
+    await trackedDownload(zipName, 0, async (onProgress, signal, onStatus) => {
       await streamZipDownload({
         paths,
         basePath: currentPath,
         filename: zipName,
         onProgress,
+        onStatus,
         signal,
       });
-    });
+    }, 'Preparing zip…');
   };
 
   return {

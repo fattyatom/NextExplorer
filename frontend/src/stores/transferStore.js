@@ -86,6 +86,13 @@ export const useTransferStore = defineStore('transfer', () => {
     transfers.value = new Map(transfers.value);
   }
 
+  function updateStatus(id, statusText) {
+    const t = transfers.value.get(id);
+    if (!t) return;
+    t.statusText = statusText || null;
+    transfers.value = new Map(transfers.value);
+  }
+
   function complete(id) {
     const t = transfers.value.get(id);
     if (!t) return;
@@ -175,6 +182,7 @@ export const useTransferStore = defineStore('transfer', () => {
     counts,
     add,
     updateProgress,
+    updateStatus,
     complete,
     fail,
     cancel,

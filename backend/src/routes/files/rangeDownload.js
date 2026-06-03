@@ -36,7 +36,12 @@ const getMimeType = (ext) => {
   return map[ext] || 'application/octet-stream';
 };
 
-async function resolveTarget(req) {
+/**
+ * Resolve the target file for range-download.
+ * Returns { absolutePath, filename, stats } or null if the response was
+ * already sent (e.g. 202 "still building").
+ */
+async function resolveTarget(req, res) {
   const downloadId = req.query?.downloadId;
   if (downloadId) {
     const dl = preparedDownloads.get(downloadId);
@@ -44,7 +49,9 @@ async function resolveTarget(req) {
       throw new NotFoundError('Prepared download not found or expired.');
     }
     if (dl.building) {
-      throw new NotFoundError('Download is still being prepared. Retry shortly.');
+      // 202 = "accepted but not ready yet" — the client polls until it gets 200
+      res.status(202).json({ status: 'building', message: 'Download is still being prepared.' });
+      return null;
     }
     if (dl.error) {
       // Use a non-retryable error so the client stops polling
@@ -132,6 +139,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
       'Content-Type': mimeType,
       'Content-Disposition': encodeContentDisposition(filename),
     });
+    res.flushHeaders();
 
     const stream = fss.createReadStream(absolutePath, { start, end });
     stream.on('error', (err) => {
@@ -152,6 +160,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
     'Accept-Ranges': 'bytes',
     'Content-Disposition': encodeContentDisposition(filename),
   });
+  res.flushHeaders();
 
   const stream = fss.createReadStream(absolutePath);
   stream.on('error', (err) => {
@@ -166,11 +175,50 @@ function serveFile(req, res, absolutePath, filename, stats) {
 }
 
 const handler = asyncHandler(async (req, res) => {
-  const { absolutePath, filename, stats } = await resolveTarget(req);
+  const target = await resolveTarget(req, res);
+  if (!target) return; // 202 already sent
+  const { absolutePath, filename, stats } = target;
   serveFile(req, res, absolutePath, filename, stats);
 });
 
 router.get('/range-download', handler);
 router.head('/range-download', handler);
+
+/**
+ * DELETE /api/range-download?downloadId=…
+ *
+ * Cancel an in-progress or completed prepared download.
+ * Removes the entry from the store and deletes the temp file.
+ */
+router.delete(
+  '/range-download',
+  asyncHandler(async (req, res) => {
+    const downloadId = req.query?.downloadId;
+    if (!downloadId) {
+      throw new ValidationError('downloadId query parameter is required.');
+    }
+
+    const dl = preparedDownloads.get(downloadId);
+    if (!dl) {
+      // Already gone or expired — nothing to do
+      res.status(204).end();
+      return;
+    }
+
+    const userId = req.user?.id || req.guestSession?.id || null;
+    if (dl.userId !== userId) {
+      throw new ForbiddenError('Download belongs to a different user.');
+    }
+
+    // If there's an active archiver, abort it
+    if (dl.archive && typeof dl.archive.abort === 'function') {
+      dl.archive.abort();
+    }
+
+    preparedDownloads.remove(downloadId);
+    logger.info({ downloadId }, 'Download cancelled by client');
+    res.status(204).end();
+  })
+);
 
 module.exports = router;
