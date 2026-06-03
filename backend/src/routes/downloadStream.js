@@ -3,7 +3,6 @@ const fs = require('fs/promises');
 const fss = require('fs');
 const crypto = require('crypto');
 const os = require('os');
-const { Transform } = require('stream');
 const archiver = require('archiver');
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { resolvePathWithAccess } = require('../services/accessManager');
@@ -88,47 +87,10 @@ router.post(
     res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
     res.setHeader('X-Download-Id', downloadId);
     res.setHeader('X-Archive-Name', encodeURIComponent(archiveName));
-    res.setHeader('Transfer-Encoding', 'chunked');
 
     const fileStream = fss.createWriteStream(tempPath);
     const archive = archiver('zip', { zlib: { level: 1 } });
-
-    let clientDisconnected = false;
     let totalBytes = 0;
-    req.on('close', () => {
-      clientDisconnected = true;
-    });
-
-    const tee = new Transform({
-      transform(chunk, _encoding, callback) {
-        totalBytes += chunk.length;
-        fileStream.write(chunk, (err) => {
-          if (err) return callback(err);
-          if (!clientDisconnected && !res.writableEnded) {
-            res.write(chunk);
-          }
-          callback(null, null);
-        });
-      },
-      flush(callback) {
-        fileStream.end(() => {
-          preparedDownloads.set(downloadId, {
-            userId,
-            tempPath,
-            filename: archiveName,
-            size: totalBytes,
-          });
-          logger.info(
-            { downloadId, filename: archiveName, size: totalBytes, clientDisconnected },
-            'Streaming download completed'
-          );
-          if (!clientDisconnected && !res.writableEnded) {
-            res.end();
-          }
-          callback();
-        });
-      },
-    });
 
     archive.on('error', (err) => {
       logger.error({ err, downloadId }, 'Streaming archive creation failed');
@@ -141,7 +103,22 @@ router.post(
       }
     });
 
-    archive.pipe(tee);
+    // Track total bytes for resume metadata
+    archive.on('data', (chunk) => {
+      totalBytes += chunk.length;
+    });
+
+    // Pipe to temp file (auto-ends fileStream when archive finishes)
+    archive.pipe(fileStream);
+    // Pipe to HTTP response — don't auto-end; we end manually after
+    // the temp file is fully flushed so resume metadata is registered first
+    archive.pipe(res, { end: false });
+
+    // If the client disconnects mid-stream, stop writing to the response
+    // but let the archive continue writing to the temp file for resume
+    res.on('close', () => {
+      archive.unpipe(res);
+    });
 
     targets.forEach(({ relativePath, absolutePath, stats }) => {
       const entryNameRaw = stripBasePath(relativePath, baseNormalized);
@@ -159,10 +136,28 @@ router.post(
     });
 
     await archive.finalize();
+
+    // Wait for the temp file to be fully written before registering
     await new Promise((resolve, reject) => {
-      tee.on('finish', resolve);
-      tee.on('error', reject);
+      fileStream.on('close', resolve);
+      fileStream.on('error', reject);
     });
+
+    preparedDownloads.set(downloadId, {
+      userId,
+      tempPath,
+      filename: archiveName,
+      size: totalBytes,
+    });
+
+    logger.info(
+      { downloadId, filename: archiveName, size: totalBytes },
+      'Streaming download completed'
+    );
+
+    if (!res.writableEnded) {
+      res.end();
+    }
   })
 );
 
