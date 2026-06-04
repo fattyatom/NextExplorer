@@ -140,8 +140,11 @@ function triggerNativeDownload(url, filename) {
 // file to the browser's native download manager.
 // ---------------------------------------------------------------------------
 
-const POLL_INTERVAL_MS = 1000;
-const POLL_MAX_ATTEMPTS = 600; // ~10 minutes to build very large archives
+// Each poll long-polls server-side (the server holds the request open until the
+// build finishes, up to ~20s), so we only need a brief breather between requests
+// and far fewer of them. This avoids per-request CDN latency dominating the wait.
+const POLL_INTERVAL_MS = 250;
+const POLL_MAX_ATTEMPTS = 90; // ~30 minutes worst case (server waits ~20s/attempt)
 
 async function fetchFileSize(url, signal) {
   const res = await fetch(url, {
@@ -180,7 +183,9 @@ async function cancelPreparedDownload(downloadId) {
 }
 
 async function waitForPreparedDownload(downloadId, signal) {
-  const url = buildRangeDownloadUrl(null, downloadId);
+  // wait=1 makes the server long-poll: it holds the request open until the
+  // build finishes (or its bounded timeout), instead of returning 202 instantly.
+  const url = `${buildRangeDownloadUrl(null, downloadId)}&wait=1`;
 
   // If the caller aborts, cancel the server-side build + temp file
   const onAbort = () => cancelPreparedDownload(downloadId);

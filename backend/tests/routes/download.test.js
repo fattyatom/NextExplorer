@@ -179,6 +179,23 @@ describe('POST /api/download', () => {
 
       expect([200, 202]).toContain(getRes.status);
     });
+
+    it('long-polls with wait=1 and returns 200 once the build finishes', async () => {
+      const { app } = buildApp({ user: testUser });
+      const postRes = await request(app)
+        .post('/api/download')
+        .send({ items: ['photos'], basePath: '' });
+
+      const { downloadId } = postRes.body;
+
+      // wait=1 holds the request open until the background build completes,
+      // so a single request should resolve to 200 without client-side polling.
+      const headRes = await request(app)
+        .head(`/api/range-download?downloadId=${downloadId}&wait=1`);
+
+      expect(headRes.status).toBe(200);
+      expect(Number(headRes.headers['content-length'])).toBeGreaterThan(0);
+    });
   });
 
   // ── Validation ─────────────────────────────────────────────────────

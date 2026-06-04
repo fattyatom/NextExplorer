@@ -11,6 +11,18 @@ const { encodeContentDisposition } = require('./utils');
 
 const router = require('express').Router();
 
+// Long-poll window for the readiness check. The client sends ?wait=1 and the
+// server holds the request open until the background build finishes (or this
+// timeout elapses, after which it returns 202 and the client re-polls). Kept
+// well under reverse-proxy / CDN response timeouts (e.g. Cloudflare's 100s) so
+// the held connection is never killed. This collapses many polling round-trips
+// — each of which adds CDN latency — into one, and returns the instant the zip
+// is ready.
+const READY_WAIT_TIMEOUT_MS = 20000;
+const READY_POLL_STEP_MS = 250;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const getMimeType = (ext) => {
   const map = {
     pdf: 'application/pdf',
@@ -44,12 +56,28 @@ const getMimeType = (ext) => {
 async function resolveTarget(req, res) {
   const downloadId = req.query?.downloadId;
   if (downloadId) {
-    const dl = preparedDownloads.get(downloadId);
+    let dl = preparedDownloads.get(downloadId);
     if (!dl) {
       throw new NotFoundError('Prepared download not found or expired.');
     }
+
+    // Long-poll: if requested, hold the connection until the build finishes
+    // (or the bounded timeout elapses) so the client doesn't have to spam polls.
+    if (dl.building && req.query?.wait) {
+      const deadline = Date.now() + READY_WAIT_TIMEOUT_MS;
+      while (dl.building && Date.now() < deadline) {
+        await sleep(READY_POLL_STEP_MS);
+        dl = preparedDownloads.get(downloadId);
+        if (!dl) {
+          // Build failed / was cancelled / expired while we waited.
+          throw new NotFoundError('Prepared download not found or expired.');
+        }
+      }
+    }
+
     if (dl.building) {
       // 202 = "accepted but not ready yet" — the client polls until it gets 200
+      res.set('Cache-Control', 'no-store');
       res.status(202).json({ status: 'building', message: 'Download is still being prepared.' });
       return null;
     }
