@@ -24,13 +24,14 @@ const props = defineProps({
 const emit = defineEmits(['cancel', 'dismiss']);
 
 const icon = computed(() => {
-  if (props.status === 'complete') return CheckCircleIcon;
+  if (props.status === 'complete' || props.status === 'handoff') return CheckCircleIcon;
   if (props.status === 'error') return ExclamationCircleIcon;
   return props.direction === 'upload' ? ArrowUpTrayIcon : ArrowDownTrayIcon;
 });
 
 const iconClass = computed(() => {
-  if (props.status === 'complete') return 'text-green-500 dark:text-green-400';
+  if (props.status === 'complete' || props.status === 'handoff')
+    return 'text-green-500 dark:text-green-400';
   if (props.status === 'error') return 'text-red-500 dark:text-red-400';
   return 'text-indigo-500 dark:text-indigo-400';
 });
@@ -38,6 +39,7 @@ const iconClass = computed(() => {
 const heading = computed(() => {
   const verb = props.direction === 'upload' ? 'Upload' : 'Download';
   if (props.status === 'complete') return `${props.filename} ${verb.toLowerCase()}ed`;
+  if (props.status === 'handoff') return props.filename;
   if (props.status === 'error') return `${verb} failed`;
   return `${verb === 'Upload' ? 'Uploading' : 'Downloading'} ${props.filename}`;
 });
@@ -52,7 +54,7 @@ const subtitle = computed(() => {
 });
 
 const barClass = computed(() => {
-  if (props.status === 'complete') return 'tf-bar--complete';
+  if (props.status === 'complete' || props.status === 'handoff') return 'tf-bar--complete';
   if (props.status === 'error') return 'tf-bar--error';
   return 'tf-bar--active tf-bar--animated';
 });

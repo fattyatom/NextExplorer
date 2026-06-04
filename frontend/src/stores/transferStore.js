@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import { useNotificationsStore } from './notifications';
 
 const COMPLETED_LINGER_MS = 2000;
+const HANDOFF_LINGER_MS = 5000;
 
 export const useTransferStore = defineStore('transfer', () => {
   const transfers = ref(new Map());
@@ -10,7 +11,11 @@ export const useTransferStore = defineStore('transfer', () => {
 
   const activeTransfers = computed(() =>
     Array.from(transfers.value.values()).filter(
-      (t) => t.status === 'active' || t.status === 'complete' || t.status === 'error'
+      (t) =>
+        t.status === 'active' ||
+        t.status === 'complete' ||
+        t.status === 'handoff' ||
+        t.status === 'error'
     )
   );
 
@@ -48,13 +53,13 @@ export const useTransferStore = defineStore('transfer', () => {
     return `transfer-${nextId++}-${Date.now().toString(36)}`;
   }
 
-  function scheduleRemoval(id) {
+  function scheduleRemoval(id, delay = COMPLETED_LINGER_MS) {
     if (lingerTimers.has(id)) clearTimeout(lingerTimers.get(id));
     lingerTimers.set(id, setTimeout(() => {
       lingerTimers.delete(id);
       transfers.value.delete(id);
       transfers.value = new Map(transfers.value);
-    }, COMPLETED_LINGER_MS));
+    }, delay));
   }
 
   function add(direction, filename, totalBytes, statusText) {
@@ -112,6 +117,17 @@ export const useTransferStore = defineStore('transfer', () => {
     scheduleRemoval(id);
   }
 
+  function handoff(id) {
+    const t = transfers.value.get(id);
+    if (!t) return;
+    // The browser's native download manager has taken over. We can't track
+    // its progress, so show an honest terminal state and auto-dismiss.
+    t.status = 'handoff';
+    t.statusText = 'Download started — saving via your browser';
+    transfers.value = new Map(transfers.value);
+    scheduleRemoval(id, HANDOFF_LINGER_MS);
+  }
+
   function fail(id, error) {
     const t = transfers.value.get(id);
     if (!t) return;
@@ -151,7 +167,7 @@ export const useTransferStore = defineStore('transfer', () => {
 
   function clearCompleted() {
     for (const [id, t] of transfers.value) {
-      if (t.status === 'complete' || t.status === 'error') {
+      if (t.status === 'complete' || t.status === 'error' || t.status === 'handoff') {
         if (lingerTimers.has(id)) {
           clearTimeout(lingerTimers.get(id));
           lingerTimers.delete(id);
@@ -184,6 +200,7 @@ export const useTransferStore = defineStore('transfer', () => {
     updateProgress,
     updateStatus,
     complete,
+    handoff,
     fail,
     cancel,
     remove,
