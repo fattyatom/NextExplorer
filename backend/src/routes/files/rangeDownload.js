@@ -127,15 +127,17 @@ async function resolveTarget(req, res) {
 // large-file throughput, especially through a reverse proxy / CDN like Cloudflare.
 const READ_CHUNK_BYTES = 1024 * 1024; // 1 MB
 
-// Headers that stop proxies/CDNs from buffering the download before forwarding
-// it. Without these, Cloudflare (or an nginx-family proxy) can pull the entire
-// multi-GB file into its cache/buffer before sending the first byte to the
-// browser — which delays the "save as" dialog until the whole file has been
-// fetched. `no-store` keeps CF from caching, `no-transform` from rewriting, and
-// `X-Accel-Buffering: no` disables nginx response buffering for this response.
-const antiBufferHeaders = () => ({
+// Cache directives that stop a CDN from caching/transforming the download.
+// `no-store` keeps Cloudflare from caching the (single-use, unique) temp file
+// and `no-transform` from rewriting it.
+//
+// NOTE: we deliberately do NOT send `X-Accel-Buffering: no` here. While it
+// disables nginx response buffering, it switches the upstream into unbuffered
+// (often chunked) streaming, which Cloudflare can truncate/reset for large
+// files — downloads then fail with only a few bytes received. The right place
+// to stop CDN buffering is a Cloudflare cache/bypass rule, not this header.
+const downloadCacheHeaders = () => ({
   'Cache-Control': 'no-store, no-transform',
-  'X-Accel-Buffering': 'no',
 });
 
 function serveFile(req, res, absolutePath, filename, stats) {
@@ -148,7 +150,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
       'Content-Length': stats.size,
       'Accept-Ranges': 'bytes',
       'Content-Disposition': encodeContentDisposition(filename),
-      ...antiBufferHeaders(),
+      ...downloadCacheHeaders(),
     });
     res.end();
     return;
@@ -182,7 +184,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
       'Content-Length': chunkSize,
       'Content-Type': mimeType,
       'Content-Disposition': encodeContentDisposition(filename),
-      ...antiBufferHeaders(),
+      ...downloadCacheHeaders(),
     });
     res.flushHeaders();
 
@@ -208,7 +210,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
     'Content-Length': stats.size,
     'Accept-Ranges': 'bytes',
     'Content-Disposition': encodeContentDisposition(filename),
-    ...antiBufferHeaders(),
+    ...downloadCacheHeaders(),
   });
   res.flushHeaders();
 

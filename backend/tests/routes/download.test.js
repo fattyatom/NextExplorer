@@ -157,10 +157,8 @@ describe('POST /api/download', () => {
 
       expect(getRes.status).toBe(200);
       expect(getRes.headers['content-type']).toBe('application/zip');
-      // Anti-buffering headers so proxies/CDNs stream instead of buffering
-      // the whole file before forwarding (which delays the browser dialog).
+      // Cache directives so a CDN doesn't cache/transform the single-use file.
       expect(getRes.headers['cache-control']).toContain('no-store');
-      expect(getRes.headers['x-accel-buffering']).toBe('no');
 
       const zip = new AdmZip(Buffer.from(getRes.body));
       const entries = zip.getEntries().map((e) => e.entryName).sort();
