@@ -17,6 +17,26 @@ function buildRangeDownloadUrl(filePath, downloadId) {
   return buildUrl(`/api/range-download?${params.toString()}`);
 }
 
+/**
+ * Append the guest-session token to a URL as a query param.
+ *
+ * Browser-initiated downloads (<a download>) can't send the X-Guest-Session
+ * header, so shared-link / guest downloads must carry the session in the URL.
+ */
+function withGuestSession(url) {
+  try {
+    const guestSessionId =
+      typeof sessionStorage !== 'undefined' && sessionStorage.getItem('guestSessionId');
+    if (guestSessionId) {
+      const sep = url.includes('?') ? '&' : '?';
+      return `${url}${sep}guestSession=${encodeURIComponent(guestSessionId)}`;
+    }
+  } catch {
+    /* sessionStorage unavailable — fall through */
+  }
+  return url;
+}
+
 function parseFilenameFromHeaders(headers) {
   const disposition = headers.get('content-disposition') || '';
   const match = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)/i);
@@ -284,7 +304,10 @@ export async function streamZipDownload({ paths, basePath, filename, onStatus, s
   onStatus?.('Preparing zip…');
   await waitForPreparedDownload(downloadId, signal);
 
-  // 3. Hand the completed file to the browser's download manager
-  triggerNativeDownload(buildRangeDownloadUrl(null, downloadId), serverFilename || filename);
+  // 3. Hand the completed file to the browser's download manager.
+  //    The <a download> GET can't send the X-Guest-Session header, so carry
+  //    the guest session in the URL for shared-link downloads.
+  const downloadUrl = withGuestSession(buildRangeDownloadUrl(null, downloadId));
+  triggerNativeDownload(downloadUrl, serverFilename || filename);
   return 'native-handoff';
 }

@@ -274,6 +274,25 @@ describe('streamZipDownload()', () => {
     expect(anchors[anchors.length - 1].href).toContain('downloadId=resume-id-1');
   });
 
+  it('carries the guest session in the native download URL (shared links)', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    sessionStorage.setItem('guestSessionId', 'guest-abc');
+    try {
+      fetchMock
+        .mockResolvedValueOnce(mockAcceptResponse({ downloadId: 'share-id', filename: 's.zip' }))
+        .mockResolvedValueOnce(mockReadyResponse());
+
+      await streamZipDownload({ paths: ['shared-folder'], basePath: '', filename: 's.zip' });
+
+      const href = anchors[anchors.length - 1].href;
+      expect(href).toContain('downloadId=share-id');
+      expect(href).toContain('guestSession=guest-abc');
+    } finally {
+      sessionStorage.removeItem('guestSessionId');
+    }
+  });
+
   it('reports "Preparing zip…" via onStatus', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 

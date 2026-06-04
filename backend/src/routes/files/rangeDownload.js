@@ -95,6 +95,10 @@ async function resolveTarget(req, res) {
   return { absolutePath, filename: path.basename(absolutePath), stats };
 }
 
+// Larger read chunks than Node's 64 KB default keep the socket fed and improve
+// large-file throughput, especially through a reverse proxy / CDN like Cloudflare.
+const READ_CHUNK_BYTES = 1024 * 1024; // 1 MB
+
 function serveFile(req, res, absolutePath, filename, stats) {
   const ext = path.extname(filename).slice(1).toLowerCase();
   const mimeType = getMimeType(ext);
@@ -141,7 +145,11 @@ function serveFile(req, res, absolutePath, filename, stats) {
     });
     res.flushHeaders();
 
-    const stream = fss.createReadStream(absolutePath, { start, end });
+    const stream = fss.createReadStream(absolutePath, {
+      start,
+      end,
+      highWaterMark: READ_CHUNK_BYTES,
+    });
     stream.on('error', (err) => {
       logger.error({ err }, 'Range download stream failed');
       if (!res.headersSent) {
@@ -162,7 +170,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
   });
   res.flushHeaders();
 
-  const stream = fss.createReadStream(absolutePath);
+  const stream = fss.createReadStream(absolutePath, { highWaterMark: READ_CHUNK_BYTES });
   stream.on('error', (err) => {
     logger.error({ err }, 'Download stream failed');
     if (!res.headersSent) {
