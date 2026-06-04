@@ -13,7 +13,10 @@ vi.mock('@/api/http', () => ({
   normalizePath: (p) => p,
 }));
 
-// Minimal DOM shim
+// Capture <a> elements created for downloads. We spy on document.createElement
+// in beforeEach so this works whether or not the test env provides a real DOM
+// (jsdom's real <a>.click() throws "navigation not implemented", so we always
+// substitute our own fake anchor with a no-op click).
 const anchors = [];
 function makeAnchor() {
   const a = { href: '', download: '', style: {}, click: vi.fn() };
@@ -24,15 +27,8 @@ function makeAnchor() {
 if (typeof globalThis.window === 'undefined') {
   globalThis.window = globalThis;
 }
-
 if (typeof globalThis.document === 'undefined') {
-  globalThis.document = {
-    createElement: (tag) => (tag === 'a' ? makeAnchor() : {}),
-    body: {
-      appendChild: vi.fn(),
-      removeChild: vi.fn(),
-    },
-  };
+  globalThis.document = { createElement: () => ({}), body: {} };
 }
 
 if (typeof globalThis.sessionStorage === 'undefined') {
@@ -90,6 +86,12 @@ beforeEach(() => {
   fetchMock = vi.fn();
   globalThis.fetch = fetchMock;
   anchors.length = 0;
+  // Always substitute our fake anchor for <a> so .click() never navigates.
+  vi.spyOn(document, 'createElement').mockImplementation((tag) =>
+    tag === 'a' ? makeAnchor() : {}
+  );
+  vi.spyOn(document.body, 'appendChild').mockImplementation((node) => node);
+  vi.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
 });
 
 afterEach(() => {
@@ -186,26 +188,38 @@ describe('download()', () => {
 // ---------------------------------------------------------------------------
 
 describe('streamZipDownload()', () => {
+  // POST /api/download → 202 { downloadId, filename }
+  function mockAcceptResponse({ downloadId = 'abc123', filename = 'photos.zip' } = {}) {
+    return {
+      ok: true,
+      status: 202,
+      headers: { get: () => null },
+      json: () => Promise.resolve({ downloadId, filename }),
+    };
+  }
+
+  // HEAD /api/range-download → 200 with Content-Length (build finished)
+  function mockReadyResponse(size = 1000) {
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (key) => (key.toLowerCase() === 'content-length' ? String(size) : null) },
+    };
+  }
+
   it('POSTs to /api/download with correct body', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
-    fetchMock.mockResolvedValue(
-      mockResponse('zipdata', {
-        'content-disposition': 'attachment; filename="photos.zip"',
-        'x-download-id': 'abc123',
-      })
-    );
+    fetchMock
+      .mockResolvedValueOnce(mockAcceptResponse())
+      .mockResolvedValueOnce(mockReadyResponse());
 
-    // With no FSAA and chunkedEnabled=false → blob fallback
     await streamZipDownload({
       paths: ['photos/a.jpg', 'photos/b.jpg'],
       basePath: 'photos',
       filename: 'photos.zip',
-      onProgress: vi.fn(),
-      chunkedEnabled: false,
     });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe('http://test/api/download');
     expect(opts.method).toBe('POST');
@@ -214,31 +228,83 @@ describe('streamZipDownload()', () => {
     expect(body.basePath).toBe('photos');
   });
 
-  it('parses filename from Content-Disposition header', async () => {
+  it('uses the server-provided filename for the native download', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
-    fetchMock.mockResolvedValue(
-      mockResponse('zipdata', {
-        'content-disposition': "attachment; filename*=UTF-8''My%20Album.zip",
-        'x-download-id': 'abc123',
-      })
-    );
+    fetchMock
+      .mockResolvedValueOnce(mockAcceptResponse({ downloadId: 'id-1', filename: 'My Album.zip' }))
+      .mockResolvedValueOnce(mockReadyResponse());
 
-    await streamZipDownload({
-      paths: ['album'],
-      basePath: '',
-      filename: 'fallback.zip',
-      chunkedEnabled: false,
-    });
+    await streamZipDownload({ paths: ['album'], basePath: '', filename: 'fallback.zip' });
 
     expect(anchors.length).toBeGreaterThan(0);
-    expect(anchors[0].download).toBe('My Album.zip');
+    expect(anchors[anchors.length - 1].download).toBe('My Album.zip');
+  });
+
+  it('returns "native-handoff" once the browser takes over', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(mockAcceptResponse({ downloadId: 'id-2' }))
+      .mockResolvedValueOnce(mockReadyResponse());
+
+    const result = await streamZipDownload({ paths: ['x'], basePath: '', filename: 't.zip' });
+    expect(result).toBe('native-handoff');
+  });
+
+  it('polls range-download with the downloadId, then triggers native download', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(mockAcceptResponse({ downloadId: 'resume-id-1', filename: 'big.zip' }))
+      .mockResolvedValueOnce(mockReadyResponse(1000));
+
+    await streamZipDownload({ paths: ['big-folder'], basePath: '', filename: 'big.zip' });
+
+    // First call POST, second call HEAD poll
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const headCall = fetchMock.mock.calls[1];
+    expect(headCall[0]).toContain('/api/range-download');
+    expect(headCall[0]).toContain('downloadId=resume-id-1');
+    expect(headCall[1].method).toBe('HEAD');
+
+    // Native download triggered via <a> click, pointing at the prepared file
+    expect(anchors.length).toBeGreaterThan(0);
+    expect(anchors[anchors.length - 1].click).toHaveBeenCalledOnce();
+    expect(anchors[anchors.length - 1].href).toContain('downloadId=resume-id-1');
+  });
+
+  it('reports "Preparing zip…" via onStatus', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(mockAcceptResponse())
+      .mockResolvedValueOnce(mockReadyResponse());
+
+    const onStatus = vi.fn();
+    await streamZipDownload({ paths: ['x'], basePath: '', filename: 't.zip', onStatus });
+    expect(onStatus).toHaveBeenCalledWith('Preparing zip…');
+  });
+
+  it('throws when the server does not return a downloadId', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      headers: { get: () => null },
+      json: () => Promise.resolve({}),
+    });
+
+    await expect(
+      streamZipDownload({ paths: ['x'], basePath: '', filename: 't.zip' })
+    ).rejects.toThrow('downloadId');
   });
 
   it('throws on failed POST', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
-    fetchMock.mockResolvedValue({
+    fetchMock.mockResolvedValueOnce({
       ok: false,
       status: 403,
       headers: { get: () => null },
@@ -265,65 +331,5 @@ describe('streamZipDownload()', () => {
     ).rejects.toThrow('Transfer cancelled');
 
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  describe('without FSAA, chunkedEnabled=true', () => {
-    it('cancels response body and polls range-download for resume', async () => {
-      const { streamZipDownload } = await import('../chunkedDownload');
-
-      const cancelSpy = vi.fn().mockResolvedValue(undefined);
-
-      // First call: POST /api/download
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: {
-          get: (key) => {
-            const k = key.toLowerCase();
-            if (k === 'x-download-id') return 'resume-id-1';
-            if (k === 'content-disposition') return 'attachment; filename="big.zip"';
-            return null;
-          },
-        },
-        body: { cancel: cancelSpy },
-        json: () => Promise.resolve({}),
-      });
-
-      // Second call: HEAD /api/range-download (poll for file size)
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        headers: {
-          get: (key) => (key.toLowerCase() === 'content-length' ? '1000' : null),
-        },
-      });
-
-      const progress = vi.fn();
-      await streamZipDownload({
-        paths: ['big-folder'],
-        basePath: '',
-        filename: 'big.zip',
-        onProgress: progress,
-        chunkedEnabled: true,
-      });
-
-      // Should have cancelled the stream body
-      expect(cancelSpy).toHaveBeenCalledOnce();
-
-      // Should have polled HEAD for size
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      const headCall = fetchMock.mock.calls[1];
-      expect(headCall[0]).toContain('/api/range-download');
-      expect(headCall[0]).toContain('downloadId=resume-id-1');
-      expect(headCall[1].method).toBe('HEAD');
-
-      // Should have triggered native download via <a> click
-      expect(anchors.length).toBeGreaterThan(0);
-      expect(anchors[anchors.length - 1].click).toHaveBeenCalledOnce();
-      expect(anchors[anchors.length - 1].href).toContain('downloadId=resume-id-1');
-
-      // Should have reported progress as complete
-      expect(progress).toHaveBeenCalledWith(1000, 1000);
-    });
   });
 });

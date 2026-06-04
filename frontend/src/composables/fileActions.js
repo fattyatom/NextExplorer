@@ -122,9 +122,9 @@ export function useFileActions() {
         (text) => store.updateStatus(id, text)
       );
       if (result === 'native-handoff') {
-        // Browser's download manager owns it now — quietly dismiss the toast.
-        // Showing "downloaded" would be misleading since we can't confirm.
-        store.remove(id);
+        // Browser's download manager owns the transfer now — show an honest
+        // terminal state instead of a misleading "downloaded" message.
+        store.handoff(id);
       } else {
         store.complete(id);
       }
@@ -168,16 +168,15 @@ export function useFileActions() {
 
     const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
-    await trackedDownload(zipName, 0, async (onProgress, signal, onStatus) => {
-      await streamZipDownload({
+    await trackedDownload(zipName, 0, (_onProgress, signal, onStatus) =>
+      streamZipDownload({
         paths,
         basePath: currentPath,
         filename: zipName,
-        onProgress,
         onStatus,
         signal,
-      });
-    }, 'Preparing zip…');
+      })
+    , 'Preparing zip…');
   };
 
   return {

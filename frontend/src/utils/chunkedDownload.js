@@ -115,12 +115,13 @@ function triggerNativeDownload(url, filename) {
 }
 
 // ---------------------------------------------------------------------------
-// Resume helpers — used when the client disconnects mid-stream and a
-// server-side temp file exists (identified by downloadId).
+// Prepared-download helpers — poll a server-side temp file (identified by a
+// downloadId) until the background zip build finishes, then hand the completed
+// file to the browser's native download manager.
 // ---------------------------------------------------------------------------
 
-const RESUME_POLL_INTERVAL_MS = 3000;
-const RESUME_MAX_ATTEMPTS = 200; // ~10 minutes to build large archives
+const POLL_INTERVAL_MS = 1000;
+const POLL_MAX_ATTEMPTS = 600; // ~10 minutes to build very large archives
 
 async function fetchFileSize(url, signal) {
   const res = await fetch(url, {
@@ -158,43 +159,29 @@ async function cancelPreparedDownload(downloadId) {
   }
 }
 
-async function resumeWithRangeDownload(downloadId, filename, onProgress, signal, onStatus) {
+async function waitForPreparedDownload(downloadId, signal) {
   const url = buildRangeDownloadUrl(null, downloadId);
 
   // If the caller aborts, cancel the server-side build + temp file
   const onAbort = () => cancelPreparedDownload(downloadId);
   signal?.addEventListener('abort', onAbort, { once: true });
 
-  // Poll until the server has finished building the temp file
-  let fileSize;
   try {
-    for (let attempt = 0; attempt < RESUME_MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
       checkAborted(signal);
       try {
-        fileSize = await fetchFileSize(url, signal);
-        break;
+        return await fetchFileSize(url, signal); // resolves once the zip is ready
       } catch (err) {
         if (err.name === 'AbortError') throw err;
         const isNotReady = err.retryable || err.message?.includes('still being prepared');
-        if (!isNotReady || attempt === RESUME_MAX_ATTEMPTS - 1) throw err;
-        await new Promise((r) => setTimeout(r, RESUME_POLL_INTERVAL_MS));
+        if (!isNotReady || attempt === POLL_MAX_ATTEMPTS - 1) throw err;
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
     }
   } finally {
     signal?.removeEventListener('abort', onAbort);
   }
-
-  // Use native browser download for prepared zips.
-  // After the polling phase the user gesture has expired, so FSAA's
-  // showSaveFilePicker() would fail anyway.  More importantly, fetch()-based
-  // streaming through Cloudflare can still 524 on very large files.
-  // The browser's own download manager handles large files reliably with
-  // built-in retry/resume support and shows its own progress.
-  onStatus?.('Handing off to browser…');
-  triggerNativeDownload(url, filename);
-  // Signal that the browser's download manager now owns the transfer.
-  // The caller should dismiss quietly — we can't track native progress.
-  return 'native-handoff';
+  throw new Error('Timed out waiting for the archive to build');
 }
 
 // ---------------------------------------------------------------------------
@@ -249,28 +236,29 @@ export async function download({ path: filePath, filename, size, onProgress, sig
 /**
  * Download multiple files / directories as a zip.
  *
- * The server accepts the request, returns 202 { downloadId, filename }
- * immediately, and builds the zip to a temp file in the background.
- * The client polls GET /api/range-download?downloadId=… until the file
- * is ready, then downloads it.  This avoids all reverse-proxy streaming
- * timeouts (Cloudflare 524, nginx proxy_read_timeout, etc.).
+ * Flow (designed to survive reverse proxies like Cloudflare):
+ *  1. POST /api/download → 202 { downloadId, filename }. The server starts
+ *     building the zip to a temp file in the background and responds instantly,
+ *     so there's no long-running request to time out (no 524).
+ *  2. Poll HEAD /api/range-download?downloadId=… (202 while building, 200 when
+ *     ready). Cancelling aborts the build and removes the temp file.
+ *  3. Hand the finished file to the browser's native download manager. The
+ *     browser owns the transfer from here — it streams a ready static file to
+ *     disk with its own progress UI and resume support, which is the only
+ *     reliable way to move multi-GB files through a CDN.
+ *
+ * Returns 'native-handoff' once the browser has taken over — the caller can't
+ * track native progress, so it should show a terminal "download started" state
+ * rather than a fake 100%.
  *
  * @param {Object} opts
  * @param {string[]} opts.paths       - File/directory paths to include
  * @param {string}   opts.basePath    - Common base path for entry names
  * @param {string}   opts.filename    - Suggested zip filename
- * @param {Function}[opts.onProgress] - (downloaded, total) callback
  * @param {Function}[opts.onStatus]   - (statusText) callback for UI status updates
  * @param {AbortSignal}[opts.signal]  - Cancellation signal
  */
-export async function streamZipDownload({
-  paths,
-  basePath,
-  filename,
-  onProgress,
-  onStatus,
-  signal,
-}) {
+export async function streamZipDownload({ paths, basePath, filename, onStatus, signal }) {
   checkAborted(signal);
 
   // 1. Ask the server to start building the zip (returns immediately)
@@ -287,17 +275,16 @@ export async function streamZipDownload({
     throw new Error(body?.error?.message || `Download request failed: ${res.status}`);
   }
 
-  const body = await res.json();
-  const downloadId = body.downloadId;
-  const resolvedFilename = body.filename || filename;
-
+  const { downloadId, filename: serverFilename } = await res.json();
   if (!downloadId) {
     throw new Error('Server did not return a downloadId');
   }
 
-  // 2. Tell the UI we're preparing the archive
+  // 2. Wait for the background build to finish (toast shows "Preparing zip…")
   onStatus?.('Preparing zip…');
+  await waitForPreparedDownload(downloadId, signal);
 
-  // 3. Poll until the zip is built, then download the completed file
-  return await resumeWithRangeDownload(downloadId, resolvedFilename, onProgress, signal, onStatus);
+  // 3. Hand the completed file to the browser's download manager
+  triggerNativeDownload(buildRangeDownloadUrl(null, downloadId), serverFilename || filename);
+  return 'native-handoff';
 }
