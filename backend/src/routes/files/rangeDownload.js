@@ -11,6 +11,18 @@ const { encodeContentDisposition } = require('./utils');
 
 const router = require('express').Router();
 
+// Long-poll window for the readiness check. The client sends ?wait=1 and the
+// server holds the request open until the background build finishes (or this
+// timeout elapses, after which it returns 202 and the client re-polls). Kept
+// well under reverse-proxy / CDN response timeouts (e.g. Cloudflare's 100s) so
+// the held connection is never killed. This collapses many polling round-trips
+// — each of which adds CDN latency — into one, and returns the instant the zip
+// is ready.
+const READY_WAIT_TIMEOUT_MS = 20000;
+const READY_POLL_STEP_MS = 250;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const getMimeType = (ext) => {
   const map = {
     pdf: 'application/pdf',
@@ -44,12 +56,28 @@ const getMimeType = (ext) => {
 async function resolveTarget(req, res) {
   const downloadId = req.query?.downloadId;
   if (downloadId) {
-    const dl = preparedDownloads.get(downloadId);
+    let dl = preparedDownloads.get(downloadId);
     if (!dl) {
       throw new NotFoundError('Prepared download not found or expired.');
     }
+
+    // Long-poll: if requested, hold the connection until the build finishes
+    // (or the bounded timeout elapses) so the client doesn't have to spam polls.
+    if (dl.building && req.query?.wait) {
+      const deadline = Date.now() + READY_WAIT_TIMEOUT_MS;
+      while (dl.building && Date.now() < deadline) {
+        await sleep(READY_POLL_STEP_MS);
+        dl = preparedDownloads.get(downloadId);
+        if (!dl) {
+          // Build failed / was cancelled / expired while we waited.
+          throw new NotFoundError('Prepared download not found or expired.');
+        }
+      }
+    }
+
     if (dl.building) {
       // 202 = "accepted but not ready yet" — the client polls until it gets 200
+      res.set('Cache-Control', 'no-store');
       res.status(202).json({ status: 'building', message: 'Download is still being prepared.' });
       return null;
     }
@@ -95,6 +123,23 @@ async function resolveTarget(req, res) {
   return { absolutePath, filename: path.basename(absolutePath), stats };
 }
 
+// Larger read chunks than Node's 64 KB default keep the socket fed and improve
+// large-file throughput, especially through a reverse proxy / CDN like Cloudflare.
+const READ_CHUNK_BYTES = 1024 * 1024; // 1 MB
+
+// Cache directives that stop a CDN from caching/transforming the download.
+// `no-store` keeps Cloudflare from caching the (single-use, unique) temp file
+// and `no-transform` from rewriting it.
+//
+// NOTE: we deliberately do NOT send `X-Accel-Buffering: no` here. While it
+// disables nginx response buffering, it switches the upstream into unbuffered
+// (often chunked) streaming, which Cloudflare can truncate/reset for large
+// files — downloads then fail with only a few bytes received. The right place
+// to stop CDN buffering is a Cloudflare cache/bypass rule, not this header.
+const downloadCacheHeaders = () => ({
+  'Cache-Control': 'no-store, no-transform',
+});
+
 function serveFile(req, res, absolutePath, filename, stats) {
   const ext = path.extname(filename).slice(1).toLowerCase();
   const mimeType = getMimeType(ext);
@@ -105,6 +150,7 @@ function serveFile(req, res, absolutePath, filename, stats) {
       'Content-Length': stats.size,
       'Accept-Ranges': 'bytes',
       'Content-Disposition': encodeContentDisposition(filename),
+      ...downloadCacheHeaders(),
     });
     res.end();
     return;
@@ -138,10 +184,15 @@ function serveFile(req, res, absolutePath, filename, stats) {
       'Content-Length': chunkSize,
       'Content-Type': mimeType,
       'Content-Disposition': encodeContentDisposition(filename),
+      ...downloadCacheHeaders(),
     });
     res.flushHeaders();
 
-    const stream = fss.createReadStream(absolutePath, { start, end });
+    const stream = fss.createReadStream(absolutePath, {
+      start,
+      end,
+      highWaterMark: READ_CHUNK_BYTES,
+    });
     stream.on('error', (err) => {
       logger.error({ err }, 'Range download stream failed');
       if (!res.headersSent) {
@@ -159,10 +210,11 @@ function serveFile(req, res, absolutePath, filename, stats) {
     'Content-Length': stats.size,
     'Accept-Ranges': 'bytes',
     'Content-Disposition': encodeContentDisposition(filename),
+    ...downloadCacheHeaders(),
   });
   res.flushHeaders();
 
-  const stream = fss.createReadStream(absolutePath);
+  const stream = fss.createReadStream(absolutePath, { highWaterMark: READ_CHUNK_BYTES });
   stream.on('error', (err) => {
     logger.error({ err }, 'Download stream failed');
     if (!res.headersSent) {

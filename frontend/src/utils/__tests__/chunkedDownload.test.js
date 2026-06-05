@@ -274,6 +274,25 @@ describe('streamZipDownload()', () => {
     expect(anchors[anchors.length - 1].href).toContain('downloadId=resume-id-1');
   });
 
+  it('carries the guest session in the native download URL (shared links)', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    sessionStorage.setItem('guestSessionId', 'guest-abc');
+    try {
+      fetchMock
+        .mockResolvedValueOnce(mockAcceptResponse({ downloadId: 'share-id', filename: 's.zip' }))
+        .mockResolvedValueOnce(mockReadyResponse());
+
+      await streamZipDownload({ paths: ['shared-folder'], basePath: '', filename: 's.zip' });
+
+      const href = anchors[anchors.length - 1].href;
+      expect(href).toContain('downloadId=share-id');
+      expect(href).toContain('guestSession=guest-abc');
+    } finally {
+      sessionStorage.removeItem('guestSessionId');
+    }
+  });
+
   it('reports "Preparing zip…" via onStatus', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
@@ -331,5 +350,151 @@ describe('streamZipDownload()', () => {
     ).rejects.toThrow('Transfer cancelled');
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// streamZipDownload() — File System Access path (Chromium)
+// ---------------------------------------------------------------------------
+
+describe('streamZipDownload() with File System Access', () => {
+  let writable;
+  let pickerMock;
+
+  beforeEach(() => {
+    writable = {
+      write: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
+    };
+    pickerMock = vi.fn().mockResolvedValue({
+      createWritable: vi.fn().mockResolvedValue(writable),
+    });
+    window.showSaveFilePicker = pickerMock;
+  });
+
+  afterEach(() => {
+    delete window.showSaveFilePicker;
+  });
+
+  const accept = ({ downloadId = 'fsaa-1', filename = 'f.zip' } = {}) => ({
+    ok: true,
+    status: 202,
+    headers: { get: () => null },
+    json: () => Promise.resolve({ downloadId, filename }),
+  });
+  const ready = (size) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (k) => (k.toLowerCase() === 'content-length' ? String(size) : null) },
+  });
+  const chunk = (bytes) => ({
+    ok: true,
+    status: 206,
+    headers: { get: () => null },
+    arrayBuffer: () => Promise.resolve(new Uint8Array(bytes).buffer),
+  });
+
+  it('grabs the save handle up front and streams the file in ranged chunks', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'fsaa-1' })) // POST
+      .mockResolvedValueOnce(ready(1000)) // HEAD readiness
+      .mockResolvedValueOnce(chunk(1000)) // ranged GET
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // cleanup DELETE
+
+    const onProgress = vi.fn();
+    const result = await streamZipDownload({
+      paths: ['folder'],
+      basePath: '',
+      filename: 'f.zip',
+      onProgress,
+    });
+
+    // Picker requested before the build, with the suggested name
+    expect(pickerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ suggestedName: 'f.zip' })
+    );
+
+    // Ranged GET carried a Range header
+    const getCall = fetchMock.mock.calls.find(
+      (c) => c[1]?.method === 'GET' && c[1]?.headers?.Range
+    );
+    expect(getCall).toBeTruthy();
+    expect(getCall[1].headers.Range).toBe('bytes=0-999');
+
+    // Bytes written to disk, progress reported, stream closed
+    expect(writable.write).toHaveBeenCalledOnce();
+    expect(writable.close).toHaveBeenCalledOnce();
+    expect(onProgress).toHaveBeenCalledWith(1000, 1000);
+
+    // Not a native handoff — this path tracks real completion
+    expect(result).toBeUndefined();
+  });
+
+  it('cancels the whole download if the user dismisses the save picker', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+    pickerMock.mockRejectedValueOnce(
+      Object.assign(new Error('aborted'), { name: 'AbortError' })
+    );
+
+    await expect(
+      streamZipDownload({ paths: ['folder'], basePath: '', filename: 'f.zip' })
+    ).rejects.toThrow('Transfer cancelled');
+
+    // Never even started the build
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('splits the download into ranged GETs sized by the chunkSize setting', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    // 250-byte file with a 100-byte chunk size → 3 ranges: 0-99, 100-199, 200-249
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'fsaa-2' })) // POST
+      .mockResolvedValueOnce(ready(250)) // HEAD readiness
+      .mockResolvedValueOnce(chunk(100)) // 0-99
+      .mockResolvedValueOnce(chunk(100)) // 100-199
+      .mockResolvedValueOnce(chunk(50)) // 200-249
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // cleanup DELETE
+
+    const onProgress = vi.fn();
+    await streamZipDownload({
+      paths: ['folder'],
+      basePath: '',
+      filename: 'f.zip',
+      chunkSize: 100,
+      onProgress,
+    });
+
+    const ranges = fetchMock.mock.calls
+      .filter((c) => c[1]?.method === 'GET' && c[1]?.headers?.Range)
+      .map((c) => c[1].headers.Range);
+    expect(ranges).toEqual(['bytes=0-99', 'bytes=100-199', 'bytes=200-249']);
+
+    expect(writable.write).toHaveBeenCalledTimes(3);
+    expect(onProgress).toHaveBeenLastCalledWith(250, 250);
+  });
+
+  it('falls back to native download when chunked downloads are disabled', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'native-1', filename: 'f.zip' })) // POST
+      .mockResolvedValueOnce(ready(1000)); // HEAD readiness
+
+    const result = await streamZipDownload({
+      paths: ['folder'],
+      basePath: '',
+      filename: 'f.zip',
+      chunkedEnabled: false,
+    });
+
+    // Picker never shown, no ranged GETs, native <a> handoff instead
+    expect(pickerMock).not.toHaveBeenCalled();
+    expect(writable.write).not.toHaveBeenCalled();
+    expect(result).toBe('native-handoff');
+    expect(anchors[anchors.length - 1].click).toHaveBeenCalledOnce();
   });
 });
