@@ -352,3 +352,98 @@ describe('streamZipDownload()', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// streamZipDownload() — File System Access path (Chromium)
+// ---------------------------------------------------------------------------
+
+describe('streamZipDownload() with File System Access', () => {
+  let writable;
+  let pickerMock;
+
+  beforeEach(() => {
+    writable = {
+      write: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
+    };
+    pickerMock = vi.fn().mockResolvedValue({
+      createWritable: vi.fn().mockResolvedValue(writable),
+    });
+    window.showSaveFilePicker = pickerMock;
+  });
+
+  afterEach(() => {
+    delete window.showSaveFilePicker;
+  });
+
+  const accept = ({ downloadId = 'fsaa-1', filename = 'f.zip' } = {}) => ({
+    ok: true,
+    status: 202,
+    headers: { get: () => null },
+    json: () => Promise.resolve({ downloadId, filename }),
+  });
+  const ready = (size) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (k) => (k.toLowerCase() === 'content-length' ? String(size) : null) },
+  });
+  const chunk = (bytes) => ({
+    ok: true,
+    status: 206,
+    headers: { get: () => null },
+    arrayBuffer: () => Promise.resolve(new Uint8Array(bytes).buffer),
+  });
+
+  it('grabs the save handle up front and streams the file in ranged chunks', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'fsaa-1' })) // POST
+      .mockResolvedValueOnce(ready(1000)) // HEAD readiness
+      .mockResolvedValueOnce(chunk(1000)) // ranged GET
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // cleanup DELETE
+
+    const onProgress = vi.fn();
+    const result = await streamZipDownload({
+      paths: ['folder'],
+      basePath: '',
+      filename: 'f.zip',
+      onProgress,
+    });
+
+    // Picker requested before the build, with the suggested name
+    expect(pickerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ suggestedName: 'f.zip' })
+    );
+
+    // Ranged GET carried a Range header
+    const getCall = fetchMock.mock.calls.find(
+      (c) => c[1]?.method === 'GET' && c[1]?.headers?.Range
+    );
+    expect(getCall).toBeTruthy();
+    expect(getCall[1].headers.Range).toBe('bytes=0-999');
+
+    // Bytes written to disk, progress reported, stream closed
+    expect(writable.write).toHaveBeenCalledOnce();
+    expect(writable.close).toHaveBeenCalledOnce();
+    expect(onProgress).toHaveBeenCalledWith(1000, 1000);
+
+    // Not a native handoff — this path tracks real completion
+    expect(result).toBeUndefined();
+  });
+
+  it('cancels the whole download if the user dismisses the save picker', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+    pickerMock.mockRejectedValueOnce(
+      Object.assign(new Error('aborted'), { name: 'AbortError' })
+    );
+
+    await expect(
+      streamZipDownload({ paths: ['folder'], basePath: '', filename: 'f.zip' })
+    ).rejects.toThrow('Transfer cancelled');
+
+    // Never even started the build
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

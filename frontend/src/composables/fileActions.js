@@ -168,11 +168,12 @@ export function useFileActions() {
 
     const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
-    await trackedDownload(zipName, 0, (_onProgress, signal, onStatus) =>
+    await trackedDownload(zipName, 0, (onProgress, signal, onStatus) =>
       streamZipDownload({
         paths,
         basePath: currentPath,
         filename: zipName,
+        onProgress,
         onStatus,
         signal,
       })
