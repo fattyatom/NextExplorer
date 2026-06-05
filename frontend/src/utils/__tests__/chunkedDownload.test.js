@@ -252,6 +252,21 @@ describe('streamZipDownload()', () => {
     expect(result).toBe('native-handoff');
   });
 
+  it('succeeds when the readiness response has no Content-Length (Safari/CDN)', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(mockAcceptResponse({ downloadId: 'id-safari', filename: 'f.zip' }))
+      // HEAD readiness: 200 but no Content-Length header (Safari/Cloudflare).
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: { get: () => null } });
+
+    const result = await streamZipDownload({ paths: ['x'], basePath: '', filename: 'f.zip' });
+
+    // Must not throw "valid Content-Length"; proceeds to the native handoff.
+    expect(result).toBe('native-handoff');
+    expect(anchors[anchors.length - 1].click).toHaveBeenCalledOnce();
+  });
+
   it('polls range-download with the downloadId, then triggers native download', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
@@ -383,15 +398,15 @@ describe('streamZipDownload() with File System Access', () => {
     headers: { get: () => null },
     json: () => Promise.resolve({ downloadId, filename }),
   });
-  const ready = (size) => ({
-    ok: true,
-    status: 200,
-    headers: { get: (k) => (k.toLowerCase() === 'content-length' ? String(size) : null) },
-  });
-  const chunk = (bytes) => ({
+  // HEAD readiness — status only; no Content-Length needed (Safari/CDN-safe).
+  const ready = () => ({ ok: true, status: 200, headers: { get: () => null } });
+  // 206 chunk; total size is conveyed via Content-Range (the CDN-safe source).
+  const chunk = (bytes, total) => ({
     ok: true,
     status: 206,
-    headers: { get: () => null },
+    headers: {
+      get: (k) => (k.toLowerCase() === 'content-range' ? `bytes 0-${bytes - 1}/${total}` : null),
+    },
     arrayBuffer: () => Promise.resolve(new Uint8Array(bytes).buffer),
   });
 
@@ -400,8 +415,8 @@ describe('streamZipDownload() with File System Access', () => {
 
     fetchMock
       .mockResolvedValueOnce(accept({ downloadId: 'fsaa-1' })) // POST
-      .mockResolvedValueOnce(ready(1000)) // HEAD readiness
-      .mockResolvedValueOnce(chunk(1000)) // ranged GET
+      .mockResolvedValueOnce(ready()) // HEAD readiness
+      .mockResolvedValueOnce(chunk(1000, 1000)) // ranged GET (whole file in one chunk)
       .mockResolvedValueOnce({ ok: true, status: 204 }); // cleanup DELETE
 
     const onProgress = vi.fn();
@@ -409,6 +424,7 @@ describe('streamZipDownload() with File System Access', () => {
       paths: ['folder'],
       basePath: '',
       filename: 'f.zip',
+      chunkSize: 1000,
       onProgress,
     });
 
@@ -453,10 +469,10 @@ describe('streamZipDownload() with File System Access', () => {
     // 250-byte file with a 100-byte chunk size → 3 ranges: 0-99, 100-199, 200-249
     fetchMock
       .mockResolvedValueOnce(accept({ downloadId: 'fsaa-2' })) // POST
-      .mockResolvedValueOnce(ready(250)) // HEAD readiness
-      .mockResolvedValueOnce(chunk(100)) // 0-99
-      .mockResolvedValueOnce(chunk(100)) // 100-199
-      .mockResolvedValueOnce(chunk(50)) // 200-249
+      .mockResolvedValueOnce(ready()) // HEAD readiness
+      .mockResolvedValueOnce(chunk(100, 250)) // 0-99 (Content-Range reveals total=250)
+      .mockResolvedValueOnce(chunk(100, 250)) // 100-199
+      .mockResolvedValueOnce(chunk(50, 250)) // 200-249
       .mockResolvedValueOnce({ ok: true, status: 204 }); // cleanup DELETE
 
     const onProgress = vi.fn();
@@ -477,12 +493,36 @@ describe('streamZipDownload() with File System Access', () => {
     expect(onProgress).toHaveBeenLastCalledWith(250, 250);
   });
 
+  it('pipelines: remaining range requests overlap the writes', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    // 400-byte file, 100-byte chunks → first chunk standalone (reveals total),
+    // then chunks 2-4 are fetched concurrently.
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'fsaa-3' })) // POST
+      .mockResolvedValueOnce(ready()) // HEAD readiness
+      .mockResolvedValue(chunk(100, 400)); // every ranged GET (and cleanup DELETE)
+
+    // Record how many ranged GETs had been issued at each disk write.
+    const getsPerWrite = [];
+    writable.write.mockImplementation(async () => {
+      getsPerWrite.push(fetchMock.mock.calls.filter((c) => c[1]?.headers?.Range).length);
+    });
+
+    await streamZipDownload({ paths: ['folder'], basePath: '', filename: 'f.zip', chunkSize: 100 });
+
+    // By the 2nd write, the remaining chunks (3 and 4) have been prefetched —
+    // more GETs are in flight than sequential fetching (which would show 2).
+    expect(getsPerWrite.length).toBe(4);
+    expect(getsPerWrite[1]).toBeGreaterThan(2);
+  });
+
   it('falls back to native download when chunked downloads are disabled', async () => {
     const { streamZipDownload } = await import('../chunkedDownload');
 
     fetchMock
       .mockResolvedValueOnce(accept({ downloadId: 'native-1', filename: 'f.zip' })) // POST
-      .mockResolvedValueOnce(ready(1000)); // HEAD readiness
+      .mockResolvedValueOnce(ready()); // HEAD readiness
 
     const result = await streamZipDownload({
       paths: ['folder'],

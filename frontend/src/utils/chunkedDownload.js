@@ -151,7 +151,21 @@ function triggerNativeDownload(url, filename) {
 const POLL_INTERVAL_MS = 250;
 const POLL_MAX_ATTEMPTS = 90; // ~30 minutes worst case (server waits ~20s/attempt)
 
-async function fetchFileSize(url, signal) {
+// When streaming a prepared file to disk we keep several ranged GETs in flight
+// at once so the next chunk's request overlaps the current chunk's disk write —
+// this hides the per-request CDN round-trip that otherwise shows up as a pause
+// between chunks. The in-flight count is bounded by total bytes (not a fixed
+// number) so a large chunk size doesn't blow up memory.
+const MAX_INFLIGHT_BYTES = 64 * 1024 * 1024; // ~64 MB buffered across in-flight chunks
+const MAX_INFLIGHT_CHUNKS = 4;
+
+/**
+ * Probe whether the prepared download is ready.
+ * Resolves once built, throws a retryable error while still building.
+ * Intentionally does NOT require Content-Length — some CDNs/Safari don't expose
+ * it on a HEAD response, and the real size is read from Content-Range later.
+ */
+async function probeReady(url, signal) {
   const res = await fetch(url, {
     method: 'HEAD',
     credentials: 'include',
@@ -165,13 +179,14 @@ async function fetchFileSize(url, signal) {
     throw err;
   }
   if (!res.ok) {
-    throw new Error(`HEAD request failed: ${res.status} ${res.statusText}`);
+    throw new Error(`Readiness check failed: ${res.status} ${res.statusText}`);
   }
-  const size = Number(res.headers.get('content-length'));
-  if (!Number.isFinite(size) || size <= 0) {
-    throw new Error('Server did not return a valid Content-Length');
-  }
-  return size;
+}
+
+/** Parse the total size out of a `Content-Range: bytes a-b/TOTAL` header. */
+function parseContentRangeTotal(res) {
+  const match = /\/\s*(\d+)\s*$/.exec(res.headers.get('content-range') || '');
+  return match ? Number(match[1]) : null;
 }
 
 async function cancelPreparedDownload(downloadId) {
@@ -200,7 +215,8 @@ async function waitForPreparedDownload(downloadId, signal) {
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
       checkAborted(signal);
       try {
-        return await fetchFileSize(url, signal); // resolves once the zip is ready
+        await probeReady(url, signal); // resolves once the zip is ready
+        return;
       } catch (err) {
         if (err.name === 'AbortError') throw err;
         const isNotReady = err.retryable || err.message?.includes('still being prepared');
@@ -229,7 +245,11 @@ async function fetchRange(url, start, end, signal) {
     if (res.status !== 206 && res.status !== 200) {
       throw new Error(`Download failed: ${res.status}`);
     }
-    return { status: res.status, buffer: await res.arrayBuffer() };
+    return {
+      status: res.status,
+      total: parseContentRangeTotal(res), // authoritative size (CDN-preserved)
+      buffer: await res.arrayBuffer(),
+    };
   });
 }
 
@@ -237,29 +257,69 @@ async function fetchRange(url, start, end, signal) {
  * Stream a ready prepared download to an open FileSystemWritableFileStream as a
  * sequence of bounded ranged GETs (same chunking helpers as the upload path).
  * Each request transfers one chunk, so a CDN forwards it immediately instead of
- * buffering the whole multi-GB response, nothing larger than a chunk is held in
- * memory, and we report real progress.
+ * buffering the whole multi-GB response, and nothing larger than the in-flight
+ * window is held in memory.
+ *
+ * The total size is read from the first chunk's Content-Range header — the only
+ * size source a CDN reliably preserves (HEAD Content-Length is stripped by some
+ * proxies / not exposed by Safari). The remaining chunks are then fetched
+ * concurrently and written to disk in order, so each request overlaps the
+ * previous chunk's write — removing the per-request round-trip pause.
  *
  * @param {number} chunkSize - bytes per ranged GET (from app settings)
  */
-async function downloadPreparedToDisk(downloadId, fileHandle, totalSize, onProgress, signal, chunkSize) {
+async function downloadPreparedToDisk(downloadId, fileHandle, onProgress, signal, chunkSize) {
   const url = buildRangeDownloadUrl(null, downloadId); // fetch carries auth via headers
   const writable = await fileHandle.createWritable();
+  const inflight = new Map(); // chunk index -> Promise<{ status, total, buffer }>
   let received = 0;
 
   try {
-    for (const { start, end } of iterateChunks(totalSize, chunkSize)) {
-      checkAborted(signal);
-      const { status, buffer } = await fetchRange(url, start, end, signal);
-      if (buffer.byteLength === 0) break;
-      await writable.write(buffer);
-      received += buffer.byteLength;
+    // First chunk: also tells us the authoritative total size via Content-Range.
+    const first = await fetchRange(url, 0, chunkSize - 1, signal);
+    const totalSize = first.total || first.buffer.byteLength;
+    if (first.buffer.byteLength > 0) {
+      await writable.write(first.buffer);
+      received += first.buffer.byteLength;
       onProgress?.(received, totalSize);
-      // Server ignored the Range header and sent the whole file in one shot.
-      if (status === 200) break;
+    }
+
+    // If the server ignored the range (200) we already have everything.
+    if (first.status !== 200 && received < totalSize) {
+      // Remaining ranges (skip the first chunk we already fetched).
+      const ranges = [...iterateChunks(totalSize, chunkSize)].slice(1);
+
+      // Bound concurrency by bytes so a large chunk size can't blow up memory.
+      const concurrency = Math.max(
+        1,
+        Math.min(MAX_INFLIGHT_CHUNKS, Math.floor(MAX_INFLIGHT_BYTES / chunkSize) || 1)
+      );
+      const startFetch = (i) => {
+        const { start, end } = ranges[i];
+        inflight.set(i, fetchRange(url, start, end, signal));
+      };
+
+      let next = 0;
+      for (; next < Math.min(concurrency, ranges.length); next++) startFetch(next);
+
+      for (let i = 0; i < ranges.length; i++) {
+        checkAborted(signal);
+        const { buffer } = await inflight.get(i);
+        inflight.delete(i);
+        // Keep the window full as soon as a slot frees up.
+        if (next < ranges.length) startFetch(next++);
+
+        if (buffer.byteLength === 0) break;
+        await writable.write(buffer);
+        received += buffer.byteLength;
+        onProgress?.(received, totalSize);
+      }
     }
     await writable.close();
   } catch (err) {
+    // Drain any still-in-flight fetches so their rejections don't surface as
+    // unhandled, then discard the partial file.
+    await Promise.allSettled([...inflight.values()]);
     try {
       await writable.abort?.();
     } catch {
@@ -396,12 +456,12 @@ export async function streamZipDownload({
 
   // 2. Wait for the background build to finish (toast shows "Preparing zip…")
   onStatus?.('Preparing zip…');
-  const fileSize = await waitForPreparedDownload(downloadId, signal);
+  await waitForPreparedDownload(downloadId, signal);
 
   // 3a. Stream to the chosen file in bounded chunks (real progress, CDN-safe).
   if (fileHandle) {
     onStatus?.('Downloading…');
-    await downloadPreparedToDisk(downloadId, fileHandle, fileSize, onProgress, signal, chunkSize);
+    await downloadPreparedToDisk(downloadId, fileHandle, onProgress, signal, chunkSize);
     // Temp file has served its purpose — free it now instead of waiting for TTL.
     cancelPreparedDownload(downloadId);
     return; // real completion
