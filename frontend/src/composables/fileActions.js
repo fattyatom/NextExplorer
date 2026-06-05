@@ -3,6 +3,7 @@ import { useFileStore } from '@/stores/fileStore';
 import { normalizePath } from '@/api';
 import { download, streamZipDownload } from '@/utils/chunkedDownload';
 import { useTransferStore } from '@/stores/transferStore';
+import { useAppSettings } from '@/stores/appSettings';
 
 function isEditableElement(el) {
   if (!el) return false;
@@ -168,11 +169,18 @@ export function useFileActions() {
 
     const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
 
+    // Mirror the upload path: chunk size + enable toggle come from app settings.
+    const ct = useAppSettings().systemSettings?.chunkedTransfers;
+    const chunkedEnabled = ct?.downloadEnabled !== false;
+    const chunkSize = ct?.chunkSizeMB ? ct.chunkSizeMB * 1024 * 1024 : undefined;
+
     await trackedDownload(zipName, 0, (onProgress, signal, onStatus) =>
       streamZipDownload({
         paths,
         basePath: currentPath,
         filename: zipName,
+        chunkSize,
+        chunkedEnabled,
         onProgress,
         onStatus,
         signal,

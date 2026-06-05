@@ -446,4 +446,55 @@ describe('streamZipDownload() with File System Access', () => {
     // Never even started the build
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('splits the download into ranged GETs sized by the chunkSize setting', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    // 250-byte file with a 100-byte chunk size → 3 ranges: 0-99, 100-199, 200-249
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'fsaa-2' })) // POST
+      .mockResolvedValueOnce(ready(250)) // HEAD readiness
+      .mockResolvedValueOnce(chunk(100)) // 0-99
+      .mockResolvedValueOnce(chunk(100)) // 100-199
+      .mockResolvedValueOnce(chunk(50)) // 200-249
+      .mockResolvedValueOnce({ ok: true, status: 204 }); // cleanup DELETE
+
+    const onProgress = vi.fn();
+    await streamZipDownload({
+      paths: ['folder'],
+      basePath: '',
+      filename: 'f.zip',
+      chunkSize: 100,
+      onProgress,
+    });
+
+    const ranges = fetchMock.mock.calls
+      .filter((c) => c[1]?.method === 'GET' && c[1]?.headers?.Range)
+      .map((c) => c[1].headers.Range);
+    expect(ranges).toEqual(['bytes=0-99', 'bytes=100-199', 'bytes=200-249']);
+
+    expect(writable.write).toHaveBeenCalledTimes(3);
+    expect(onProgress).toHaveBeenLastCalledWith(250, 250);
+  });
+
+  it('falls back to native download when chunked downloads are disabled', async () => {
+    const { streamZipDownload } = await import('../chunkedDownload');
+
+    fetchMock
+      .mockResolvedValueOnce(accept({ downloadId: 'native-1', filename: 'f.zip' })) // POST
+      .mockResolvedValueOnce(ready(1000)); // HEAD readiness
+
+    const result = await streamZipDownload({
+      paths: ['folder'],
+      basePath: '',
+      filename: 'f.zip',
+      chunkedEnabled: false,
+    });
+
+    // Picker never shown, no ranged GETs, native <a> handoff instead
+    expect(pickerMock).not.toHaveBeenCalled();
+    expect(writable.write).not.toHaveBeenCalled();
+    expect(result).toBe('native-handoff');
+    expect(anchors[anchors.length - 1].click).toHaveBeenCalledOnce();
+  });
 });

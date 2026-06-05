@@ -1,5 +1,11 @@
 import { buildUrl, normalizePath } from '@/api/http';
-import { getCommonHeaders, checkAborted } from './chunkedTransfer';
+import {
+  CHUNK_SIZE,
+  iterateChunks,
+  withRetry,
+  getCommonHeaders,
+  checkAborted,
+} from './chunkedTransfer';
 
 const supportsFileSystemAccess = () =>
   typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
@@ -145,11 +151,6 @@ function triggerNativeDownload(url, filename) {
 const POLL_INTERVAL_MS = 250;
 const POLL_MAX_ATTEMPTS = 90; // ~30 minutes worst case (server waits ~20s/attempt)
 
-// Size of each ranged GET when streaming a prepared file to disk. Small enough
-// that a CDN (Cloudflare) streams each chunk immediately instead of buffering
-// the whole multi-GB response before forwarding the first byte.
-const DOWNLOAD_CHUNK_BYTES = 16 * 1024 * 1024; // 16 MB
-
 async function fetchFileSize(url, signal) {
   const res = await fetch(url, {
     method: 'HEAD',
@@ -214,36 +215,48 @@ async function waitForPreparedDownload(downloadId, signal) {
 }
 
 /**
- * Stream a ready prepared download to an open FileSystemWritableFileStream
- * using a sequence of ranged GETs. Each request transfers a bounded chunk, so a
- * CDN streams it immediately (no whole-file buffering) and we get real progress.
- * Nothing larger than one chunk is ever held in memory.
+ * Fetch a single byte range of a prepared download, with retry on transient
+ * failures (mirrors the upload path's per-chunk withRetry).
  */
-async function downloadPreparedToDisk(downloadId, fileHandle, totalSize, onProgress, signal) {
+async function fetchRange(url, start, end, signal) {
+  return withRetry(async () => {
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { ...getCommonHeaders(), Range: `bytes=${start}-${end}` },
+      signal,
+    });
+    if (res.status !== 206 && res.status !== 200) {
+      throw new Error(`Download failed: ${res.status}`);
+    }
+    return { status: res.status, buffer: await res.arrayBuffer() };
+  });
+}
+
+/**
+ * Stream a ready prepared download to an open FileSystemWritableFileStream as a
+ * sequence of bounded ranged GETs (same chunking helpers as the upload path).
+ * Each request transfers one chunk, so a CDN forwards it immediately instead of
+ * buffering the whole multi-GB response, nothing larger than a chunk is held in
+ * memory, and we report real progress.
+ *
+ * @param {number} chunkSize - bytes per ranged GET (from app settings)
+ */
+async function downloadPreparedToDisk(downloadId, fileHandle, totalSize, onProgress, signal, chunkSize) {
   const url = buildRangeDownloadUrl(null, downloadId); // fetch carries auth via headers
   const writable = await fileHandle.createWritable();
   let received = 0;
 
   try {
-    while (received < totalSize) {
+    for (const { start, end } of iterateChunks(totalSize, chunkSize)) {
       checkAborted(signal);
-      const end = Math.min(received + DOWNLOAD_CHUNK_BYTES - 1, totalSize - 1);
-      const res = await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        headers: { ...getCommonHeaders(), Range: `bytes=${received}-${end}` },
-        signal,
-      });
-      if (res.status !== 206 && res.status !== 200) {
-        throw new Error(`Download failed: ${res.status}`);
-      }
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength === 0) break;
-      await writable.write(buf);
-      received += buf.byteLength;
+      const { status, buffer } = await fetchRange(url, start, end, signal);
+      if (buffer.byteLength === 0) break;
+      await writable.write(buffer);
+      received += buffer.byteLength;
       onProgress?.(received, totalSize);
       // Server ignored the Range header and sent the whole file in one shot.
-      if (res.status === 200) break;
+      if (status === 200) break;
     }
     await writable.close();
   } catch (err) {
@@ -309,35 +322,49 @@ export async function download({ path: filePath, filename, size, onProgress, sig
  * Download multiple files / directories as a zip.
  *
  * Flow (designed to survive reverse proxies like Cloudflare):
- *  0. If the File System Access API is available, ask for the save location
- *     up front — while the user's click gesture is still valid. (After the
- *     build/poll the gesture has expired, so this must happen first.)
+ *  0. If chunked downloads are enabled and the File System Access API is
+ *     available, ask for the save location up front — while the user's click
+ *     gesture is still valid. (After the build/poll the gesture has expired,
+ *     so this must happen first.)
  *  1. POST /api/download → 202 { downloadId, filename }. The server starts
  *     building the zip to a temp file in the background and responds instantly,
  *     so there's no long-running request to time out (no 524).
  *  2. Long-poll the readiness check until the build finishes.
- *  3a. With a save handle: stream the file to disk in bounded ranged GETs. Each
- *      chunk is small enough that a CDN forwards it immediately (no whole-file
- *      buffering, which was delaying the save dialog by minutes), and we report
- *      real progress. Returns undefined → caller marks the transfer complete.
- *  3b. Without FSAA (Firefox/Safari): hand off to the browser's native download
- *      manager via <a download>. Returns 'native-handoff'.
+ *  3a. With a save handle: stream the file to disk in bounded ranged GETs sized
+ *      from the chunkSize app setting. Each chunk is small enough that a CDN
+ *      forwards it immediately (no whole-file buffering, which was delaying the
+ *      save dialog by minutes), and we report real progress. Returns undefined
+ *      → caller marks the transfer complete.
+ *  3b. Otherwise (chunking disabled, or Firefox/Safari without FSAA): hand off
+ *      to the browser's native download manager via <a download>. Returns
+ *      'native-handoff'.
  *
  * @param {Object} opts
- * @param {string[]} opts.paths       - File/directory paths to include
- * @param {string}   opts.basePath    - Common base path for entry names
- * @param {string}   opts.filename    - Suggested zip filename
- * @param {Function}[opts.onProgress] - (downloaded, total) callback
- * @param {Function}[opts.onStatus]   - (statusText) callback for UI status updates
- * @param {AbortSignal}[opts.signal]  - Cancellation signal
+ * @param {string[]} opts.paths          - File/directory paths to include
+ * @param {string}   opts.basePath       - Common base path for entry names
+ * @param {string}   opts.filename       - Suggested zip filename
+ * @param {number}  [opts.chunkSize]     - Bytes per ranged GET (from settings)
+ * @param {boolean} [opts.chunkedEnabled]- Whether to stream in chunks (default true)
+ * @param {Function}[opts.onProgress]    - (downloaded, total) callback
+ * @param {Function}[opts.onStatus]      - (statusText) callback for UI status
+ * @param {AbortSignal}[opts.signal]     - Cancellation signal
  */
-export async function streamZipDownload({ paths, basePath, filename, onProgress, onStatus, signal }) {
+export async function streamZipDownload({
+  paths,
+  basePath,
+  filename,
+  chunkSize = CHUNK_SIZE,
+  chunkedEnabled = true,
+  onProgress,
+  onStatus,
+  signal,
+}) {
   checkAborted(signal);
 
   // 0. Grab the save handle NOW, before any await, so the click gesture is
   //    still valid. showSaveFilePicker must run synchronously from the gesture.
   let fileHandle = null;
-  if (supportsFileSystemAccess()) {
+  if (chunkedEnabled && supportsFileSystemAccess()) {
     try {
       fileHandle = await window.showSaveFilePicker({ suggestedName: filename, startIn: 'downloads' });
     } catch (err) {
@@ -374,7 +401,7 @@ export async function streamZipDownload({ paths, basePath, filename, onProgress,
   // 3a. Stream to the chosen file in bounded chunks (real progress, CDN-safe).
   if (fileHandle) {
     onStatus?.('Downloading…');
-    await downloadPreparedToDisk(downloadId, fileHandle, fileSize, onProgress, signal);
+    await downloadPreparedToDisk(downloadId, fileHandle, fileSize, onProgress, signal, chunkSize);
     // Temp file has served its purpose — free it now instead of waiting for TTL.
     cancelPreparedDownload(downloadId);
     return; // real completion
