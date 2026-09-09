@@ -5,6 +5,7 @@ const {
   setUserSetting,
   setSystemSetting,
   getSettings,
+  getChunkedTransferSettings,
 } = require('../services/settingsService');
 const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
@@ -229,6 +230,31 @@ router.patch(
         }
       }
 
+      // Chunked transfer settings
+      if (payload.chunkedTransfers && typeof payload.chunkedTransfers === 'object') {
+        const { effective: currentCt, envLocked } = await getChunkedTransferSettings();
+        const ctUpdate = { ...currentCt };
+        let hasCtChanges = false;
+
+        if (payload.chunkedTransfers.uploadEnabled != null && !envLocked.uploadEnabled) {
+          ctUpdate.uploadEnabled = Boolean(payload.chunkedTransfers.uploadEnabled);
+          hasCtChanges = true;
+        }
+        if (payload.chunkedTransfers.downloadEnabled != null && !envLocked.downloadEnabled) {
+          ctUpdate.downloadEnabled = Boolean(payload.chunkedTransfers.downloadEnabled);
+          hasCtChanges = true;
+        }
+        if (Number.isFinite(payload.chunkedTransfers.chunkSizeMB) && !envLocked.chunkSizeMB) {
+          ctUpdate.chunkSizeMB = payload.chunkedTransfers.chunkSizeMB;
+          hasCtChanges = true;
+        }
+
+        if (hasCtChanges) {
+          await setSystemSetting('system', 'chunkedTransfers', ctUpdate);
+          systemUpdates.chunkedTransfers = { ...ctUpdate, envLocked };
+        }
+      }
+
       if (Object.keys(systemUpdates).length > 0) {
         Object.assign(updated, systemUpdates);
       }
@@ -244,7 +270,7 @@ router.patch(
       if (resetToDefault) {
         await deleteCustomLogoFiles();
       }
-    } else if (payload.thumbnails || payload.access || payload.branding) {
+    } else if (payload.thumbnails || payload.access || payload.branding || payload.chunkedTransfers) {
       // Non-admin trying to update system settings
       return res.status(403).json({ error: 'Admin access required for system settings.' });
     }

@@ -14,6 +14,7 @@ import AdminUsers from '@/views/settings/AdminUsers.vue';
 import SettingsPassword from '@/views/settings/SettingsPassword.vue';
 import SettingsAbout from '@/views/settings/SettingsAbout.vue';
 import SettingsUserPreferences from '@/views/settings/SettingsUserPreferences.vue';
+import SettingsTransfers from '@/views/settings/SettingsTransfers.vue';
 import AboutView from '@/views/AboutView.vue';
 import AuthSetupView from '@/views/AuthSetupView.vue';
 import AuthLoginView from '@/views/AuthLoginView.vue';
@@ -84,7 +85,11 @@ const router = createRouter({
             // Scaffolded routes
             { path: 'general', component: SettingsComingSoon },
             { path: 'appearance', component: SettingsComingSoon },
-            { path: 'uploads-downloads', component: SettingsComingSoon },
+            {
+              path: 'transfers',
+              component: SettingsTransfers,
+              meta: { requiresAdmin: true },
+            },
             { path: 'performance', component: SettingsComingSoon },
             { path: 'logging', component: SettingsComingSoon },
             { path: 'integrations', component: SettingsComingSoon },

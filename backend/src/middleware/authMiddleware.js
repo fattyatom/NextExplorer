@@ -87,11 +87,18 @@ const authMiddleware = async (req, res, next) => {
   }
 
   // Check for guest session (on all routes)
-  const guestSessionId = req.headers['x-guest-session'] || req.cookies?.guestSession;
+  // Query param is needed for browser-initiated downloads (<a download>),
+  // which cannot send the X-Guest-Session header.
+  const guestSessionId =
+    req.headers['x-guest-session'] || req.cookies?.guestSession || req.query?.guestSession;
   if (guestSessionId) {
     logger.debug(
       {
-        source: req.headers['x-guest-session'] ? 'header' : 'cookie',
+        source: req.headers['x-guest-session']
+          ? 'header'
+          : req.cookies?.guestSession
+            ? 'cookie'
+            : 'query',
         sessionId: guestSessionId,
         path: requestPath,
         cookies: Object.keys(req.cookies || {}),
