@@ -32,8 +32,10 @@ const configureStaticFiles = (app) => {
     app.use(express.static(frontendDir));
     logger.debug({ frontendDir, indexFile }, 'Mounted static frontend');
 
-    // SPA fallback - serve index.html for all non-API routes
-    app.get('*', (req, res, next) => {
+    // SPA fallback - serve index.html for all non-API routes.
+    // Express 5's path-to-regexp requires a wildcard to be named, so this is
+    // '/{*splat}' rather than the bare '*' that Express 4 accepted.
+    app.get('/{*splat}', (req, res, next) => {
       // Skip API routes and static asset routes
       if (req.path.startsWith('/api') || req.path.startsWith('/static/')) {
         return next();
