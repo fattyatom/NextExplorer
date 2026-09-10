@@ -43,12 +43,14 @@ import '@xterm/xterm/css/xterm.css';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 
 import { apiBase, createTerminalSession } from '@/api';
+import { useFileStore } from '@/stores/fileStore';
 import { useTerminalStore } from '@/stores/terminal';
 import { onClickOutside } from '@vueuse/core';
 import logger from '@/utils/logger';
 
 const terminalStore = useTerminalStore();
-const { isOpen } = storeToRefs(terminalStore);
+const fileStore = useFileStore();
+const { isOpen, launchPath, launchInput, launchKey } = storeToRefs(terminalStore);
 const { close } = terminalStore;
 
 const terminaldiv = ref(null);
@@ -58,6 +60,9 @@ let socket;
 let fitAddon;
 let resizeObserver;
 let pendingResize;
+let launchInputTimer;
+let launchInputSent = false;
+let refreshTimer;
 
 // Prefix used to send control messages (like resize) over the same WS channel as raw terminal input.
 // This avoids collisions with normal shell input (xterm sends raw keystrokes).
@@ -67,6 +72,36 @@ const sendInput = (data) => {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(data);
   }
+};
+
+const normalizeLogicalPath = (value = '') =>
+  String(value || '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\/+/g, '/');
+
+const clearRefreshTimer = () => {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+};
+
+const refreshBrowserState = () => {
+  const currentPath = normalizeLogicalPath(fileStore.currentPath || '');
+  const terminalPath = normalizeLogicalPath(launchPath.value || '');
+
+  if (terminalPath && currentPath === terminalPath) {
+    fileStore.fetchPathItems(currentPath).catch(() => {});
+  }
+};
+
+const scheduleBrowserRefresh = (delayMs = 900) => {
+  clearRefreshTimer();
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    refreshBrowserState();
+  }, delayMs);
 };
 
 const sendResize = (cols, rows) => {
@@ -85,6 +120,34 @@ const sendResize = (cols, rows) => {
       })}`
     );
   }
+};
+
+const clearLaunchInputTimer = () => {
+  if (launchInputTimer) {
+    clearTimeout(launchInputTimer);
+    launchInputTimer = null;
+  }
+};
+
+const scheduleLaunchInput = () => {
+  if (launchInputSent || !launchInput.value) return;
+
+  clearLaunchInputTimer();
+  launchInputTimer = setTimeout(() => {
+    if (launchInputSent || !launchInput.value) return;
+    sendInput(launchInput.value);
+    launchInputSent = true;
+    launchInputTimer = null;
+  }, 150);
+};
+
+const focusTerminal = () => {
+  requestAnimationFrame(() => {
+    term?.focus();
+    setTimeout(() => {
+      term?.focus();
+    }, 50);
+  });
 };
 
 const toWebSocketScheme = (url) => {
@@ -111,7 +174,7 @@ const buildTerminalUrl = (token) => {
 
 const connectToBackend = async () => {
   try {
-    const session = await createTerminalSession();
+    const session = await createTerminalSession(launchPath.value || '');
     const token = session?.token;
     if (!token) {
       console.error('Failed to obtain terminal session token');
@@ -131,7 +194,19 @@ const connectToBackend = async () => {
 
     socket.onmessage = (event) => {
       logger.debug('Received data from terminal', event.data.length, 'bytes');
-      term.write(event.data);
+      if (typeof event.data === 'string' && event.data.startsWith(CONTROL_PREFIX)) {
+        try {
+          const payload = JSON.parse(event.data.slice(CONTROL_PREFIX.length));
+          if (payload?.type === 'filesystemChanged') {
+            scheduleBrowserRefresh(500);
+          }
+        } catch (error) {
+          logger.warn('Invalid terminal control message from backend', error);
+        }
+        return;
+      }
+
+      term.write(event.data, scheduleLaunchInput);
     };
 
     socket.onerror = (error) => {
@@ -185,6 +260,7 @@ const initTerminal = () => {
   fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(terminaldiv.value);
+  focusTerminal();
 
   term.onResize(({ cols, rows }) => {
     sendResize(cols, rows);
@@ -201,23 +277,52 @@ const initTerminal = () => {
   // Initial fit (also triggers `onResize` -> sends size to backend).
   requestAnimationFrame(() => {
     fitAddon.fit();
+    focusTerminal();
   });
 
   term.onData((data) => {
     sendInput(data);
+    scheduleBrowserRefresh(1800);
   });
 
   connectToBackend();
 };
 
-watch(isOpen, (newVal) => {
+const teardownTerminal = () => {
+  clearLaunchInputTimer();
+  clearRefreshTimer();
+  launchInputSent = false;
+
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+
+  if (socket) {
+    socket.close();
+    socket = null;
+  }
+
+  if (term) {
+    term.dispose();
+    term = null;
+  }
+
+  fitAddon = null;
+  pendingResize = null;
+};
+
+watch([isOpen, launchKey], ([newVal]) => {
   if (newVal) {
+    teardownTerminal();
     setTimeout(() => {
       initTerminal();
       if (fitAddon) {
         fitAddon.fit();
       }
     }, 250);
+  } else {
+    teardownTerminal();
   }
 });
 
@@ -228,15 +333,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-  if (socket) {
-    socket.close();
-  }
-  if (term) {
-    term.dispose();
-  }
+  teardownTerminal();
 });
 
 onClickOutside(panelRef, () => {

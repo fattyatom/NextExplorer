@@ -2,7 +2,7 @@ const express = require('express');
 
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { pathExists } = require('../utils/fsUtils');
-const { getSettings } = require('../services/settingsService');
+const { getSettings, getUserSettings } = require('../services/settingsService');
 const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
 const { NotFoundError } = require('../errors/AppError');
@@ -12,11 +12,13 @@ const { resolvePathWithAccess } = require('../services/accessManager');
 const { listDirectoryItems } = require('../services/directoryListingService');
 
 router.get(
-  '/browse/*',
+  '/browse/{*splat}',
   asyncHandler(async (req, res) => {
     const settings = await getSettings();
+    const userSettings = req.user?.id ? await getUserSettings(req.user.id) : {};
     const thumbsEnabled = settings?.thumbnails?.enabled !== false;
-    const rawPath = req.params[0] || '';
+    const includeHiddenFiles = userSettings?.showHiddenFiles === true;
+    const rawPath = (req.params.splat || []).join('/');
     const inputRelativePath = normalizeRelativePath(rawPath);
 
     const context = { user: req.user, guestSession: req.guestSession };
@@ -45,6 +47,7 @@ router.get(
       context,
       thumbsEnabled,
       excludeDownloadArtifacts: true,
+      includeHiddenFiles,
       permissionRules: settings?.access?.rules || [],
     });
 
@@ -57,6 +60,9 @@ router.get(
         canDelete: accessInfo.canDelete,
         canShare: accessInfo.canShare,
         canDownload: accessInfo.canDownload,
+      },
+      current: {
+        isDirectory: true,
       },
       path: relativePath,
     };

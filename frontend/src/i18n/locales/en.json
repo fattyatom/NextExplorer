@@ -72,6 +72,11 @@
     "readwrite": "Read/Write"
   },
   "editor": {
+    "editing": "Editing",
+    "unsavedChanges": "Unsaved changes",
+    "theme": "Theme",
+    "editorSettings": "Editor settings",
+    "wrapLines": "Wrap Lines",
     "confirmCloseWithoutSaving": "You have unsaved changes. Close without saving?"
   },
   "status": {
@@ -90,6 +95,7 @@
     "paste": "Paste",
     "rename": "Rename",
     "download": "Download",
+    "downloadFolder": "Download folder",
     "extractZip": "Extract ZIP",
     "compressToZip": "Compress to ZIP",
     "search": "Search",
@@ -210,6 +216,7 @@
   "context": {
     "getInfo": "Get Info",
     "openWithEditor": "Open with Editor",
+    "openWithTerminal": "Open in Terminal",
     "addToFavorites": "Add to Favorites",
     "removeFromFavorites": "Remove from Favorites",
     "deleteTitle": {
@@ -221,7 +228,10 @@
       "single": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
       "multiple": "Are you sure you want to delete these {count} items? This action cannot be undone.",
       "generic": "No items selected."
-    }
+    },
+    "checkingDeleteImpact": "Checking linked shares...",
+    "deleteImpactUnavailable": "Unable to check linked shares. Deletion will still be enforced by the server.",
+    "deleteLinkedShares": "This content has {count} linked share that will be removed with it. | This content has {count} linked shares that will be removed with it."
   },
   "folder": {
     "kind": "Kind",
@@ -229,7 +239,11 @@
     "noPhotos": "No photos in this folder",
     "noPhotosHint": "Switch to another view mode to see all files",
     "empty": "This folder is empty",
-    "emptyHint": "Upload or create files to get started."
+    "emptyHint": "Upload or create files to get started.",
+    "scrollTop": "Top",
+    "scrollBottom": "Bottom",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all"
   },
   "volumes": {
     "quickAccess": "Quick access",
@@ -411,9 +425,15 @@
       "title": "User Preferences",
       "subtitle": "Customize your personal settings and preferences.",
       "showHiddenFiles": "Show hidden files",
-      "showHiddenFilesHelp": "Display files and folders that start with a dot (.) in the file browser.",
+      "showHiddenFilesHelp": "Display files and folders matching the configured hidden patterns ({patterns}) in the file browser.",
       "showThumbnails": "Show thumbnails",
       "showThumbnailsHelp": "Display thumbnail previews for images and videos in the file browser.",
+      "showSidebarFavorites": "Show Favorites section",
+      "showSidebarFavoritesHelp": "Display Favorites in the left sidebar.",
+      "showSidebarShares": "Show Shares section",
+      "showSidebarSharesHelp": "Display Shares in the left sidebar.",
+      "showSidebarTools": "Show Tools section",
+      "showSidebarToolsHelp": "Display Tools in the left sidebar.",
       "defaultShareExpiration": "Default share expiration",
       "defaultShareExpirationHelp": "Set a default expiration period for new shares. When creating a share, the expiration date will be pre-filled based on this setting.",
       "expirationValue": "Value",
@@ -443,6 +463,8 @@
     },
     "access": {
       "subtitle": "Set per-folder permissions: read-write, read-only, or hidden.",
+      "noRules": "No access rules configured.",
+      "noRulesHint": "Click \"Add Rule\" to create your first rule.",
       "recursive": "Recursive",
       "readWrite": "Read & Write",
       "readOnly": "Read Only",
@@ -461,10 +483,12 @@
       "validation": "Please fill all fields; new password must be at least 6 characters and match confirmation."
     },
     "users": {
+      "subtitle": "Manage users, roles, and access credentials.",
       "cannotDeleteSelf": "You cannot delete your own account.",
       "confirmRemove": "Remove user {user}? This cannot be undone.",
       "createUser": "Create User",
       "grantAdmin": "Grant admin",
+      "grantAdminHint": "Grants full access to all settings and users.",
       "displayName": "Display Name",
       "makeAdmin": "Make admin",
       "resetPassword": "Set/Reset password",
@@ -502,6 +526,32 @@
       "chunkSize": "Chunk size",
       "chunkSizeHelp": "Size of each chunk in megabytes (1–100). Default is 20 MB.",
       "envLocked": "Locked by environment variable."
+    },
+    "userDetails": {
+      "profileTab": "Profile",
+      "securityTab": "Security",
+      "generalInfo": "General Information",
+      "displayName": "Display Name",
+      "username": "Username",
+      "email": "Email Address",
+      "rolesAndPermissions": "Roles & Permissions",
+      "adminRole": "Administrator",
+      "adminRoleHint": "Can access all settings and manage users.",
+      "grantAdmin": "Grand Admin",
+      "revokeAdmin": "Revoke Admin",
+      "dangerZone": "Danger Zone",
+      "deleteUserMessage": "Permanently remove this user and all their data. This action cannot be undone.",
+      "deleteUser": "Delete User",
+      "password": "Password",
+      "localPassword": "Local Password",
+      "localPasswordExistHint": "User has a local password set.",
+      "localPasswordNotExistHint": "User does not have a local password set.",
+      "setLocalPassword": "Set Password",
+      "resetLocalPassword": "Reset Password",
+      "sso": "Single Sign-On (OIDC)",
+      "oidcProvider": "OIDC Provider",
+      "oidcLinkedProfile": "Linked Profile",
+      "noOidcProfileMessage": "No OIDC profiles linked to this account."
     }
   },
   "share": {
@@ -512,13 +562,29 @@
     "shareCreated": "Share Created",
     "createShareLink": "Create Share Link",
     "shareLink": "Share Link",
+    "directFileLink": "Direct file link",
+    "directFolderLink": "Direct folder ZIP link",
+    "copyShareLink": "Copy share link",
+    "directLinkMode": "Direct link mode",
+    "copyDirectFileLink": "Copy direct file link",
+    "copyDirectFolderLink": "Copy direct folder ZIP link",
+    "directLinkModes": {
+      "auto": "Auto",
+      "inline": "View",
+      "raw": "Raw",
+      "download": "Download"
+    },
     "shareLinkCreatedSuccess": "Share link created successfully!",
+    "access": "Access Mode",
+    "type": "Target",
     "shareSelectedItem": "Share selected item",
     "selectItemToShare": "Select an item to share",
     "sharing": "Sharing:",
     "sharedItem": "Shared Item",
     "sharedFolder": "Shared Folder",
     "sharedFile": "Shared File",
+    "label": "Label",
+    "labelPlaceholder": "e.g. My Project",
     "accessMode": "Access Mode",
     "whoCanAccess": "Who can access",
     "anyoneWithLink": "Anyone with link",
@@ -555,8 +621,11 @@
     "noMySharesDescription": "Create a share from any file or folder to see it listed here.",
     "mySharesCount": "{count} active share links",
     "confirmDeleteShare": "Remove this share? People with the link will no longer have access.",
+    "deleteShareTitle": "Remove share?",
+    "deleteShareMessage": "People with this link will no longer be able to access the shared item.",
     "removeShare": "Remove share",
-    "sharedWithAnyone": "Shared with anyone",
-    "sharedWithUsers": "{count} user | {count} users"
+    "sharedWithAnyone": "Everyone",
+    "sharedWithUsers": "{count} user | {count} users",
+    "expiresNever": "Never"
   }
 }
