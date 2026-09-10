@@ -72,6 +72,11 @@
     "readwrite": "पढ़ना/लिखना"
   },
   "editor": {
+    "editing": "Editing",
+    "unsavedChanges": "Unsaved changes",
+    "theme": "Theme",
+    "editorSettings": "Editor settings",
+    "wrapLines": "Wrap Lines",
     "confirmCloseWithoutSaving": "आपके पास बिना सहेजे परिवर्तन हैं। बिना सहेजे बंद करें?"
   },
   "status": {
@@ -90,6 +95,7 @@
     "paste": "पेस्ट",
     "rename": "नाम बदलें",
     "download": "डाउनलोड",
+    "downloadFolder": "फ़ोल्डर डाउनलोड करें",
     "extractZip": "ZIP निकालें",
     "compressToZip": "ZIP में संपीड़ित करें",
     "search": "खोजें",
@@ -210,6 +216,7 @@
   "context": {
     "getInfo": "जानकारी प्राप्त करें",
     "openWithEditor": "संपादक में खोलें",
+    "openWithTerminal": "टर्मिनल में खोलें",
     "addToFavorites": "पसंदीदा में जोड़ें",
     "removeFromFavorites": "पसंदीदा से हटाएँ",
     "deleteTitle": {
@@ -410,9 +417,15 @@
       "title": "उपयोगकर्ता प्राथमिकताएँ",
       "subtitle": "अपने व्यक्तिगत सेटिंग्स को अनुकूलित करें।",
       "showHiddenFiles": "छिपी हुई फ़ाइलें दिखाएँ",
-      "showHiddenFilesHelp": "एक्सप्लोरर में डॉट (.) से शुरू होने वाले फ़ाइलों और फ़ोल्डरों को दिखाएँ।",
+      "showHiddenFilesHelp": "एक्सप्लोरर में कॉन्फ़िगर किए गए छिपे पैटर्न ({patterns}) से मेल खाने वाली फ़ाइलें और फ़ोल्डर दिखाएँ।",
       "showThumbnails": "थंबनेल दिखाएँ",
       "showThumbnailsHelp": "इमेज और वीडियो के लिए थंबनेल पूर्वावलोकन दिखाएँ।",
+      "showSidebarFavorites": "पसंदीदा सेक्शन दिखाएँ",
+      "showSidebarFavoritesHelp": "बाएँ साइडबार में पसंदीदा दिखाएँ।",
+      "showSidebarShares": "शेयर सेक्शन दिखाएँ",
+      "showSidebarSharesHelp": "बाएँ साइडबार में शेयर दिखाएँ।",
+      "showSidebarTools": "टूल्स सेक्शन दिखाएँ",
+      "showSidebarToolsHelp": "बाएँ साइडबार में टूल्स दिखाएँ।",
       "defaultShareExpiration": "शेयर के लिए डिफ़ॉल्ट समाप्ति",
       "defaultShareExpirationHelp": "नई शेयरों के लिए एक डिफ़ॉल्ट अवधि सेट करें। यह सेटिंग शेयर बनाने पर समाप्ति तिथि को पूर्व-भरा रखेगी।",
       "expirationValue": "मान",
@@ -442,6 +455,8 @@
     },
     "access": {
       "subtitle": "प्रति फ़ोल्डर अनुमतियाँ सेट करें: पढ़ें-लिखें, केवल पढ़ें या छिपा हुआ।",
+      "noRules": "No access rules configured.",
+      "noRulesHint": "Click \"Add Rule\" to create your first rule.",
       "recursive": "रिकर्सिव",
       "readWrite": "पढ़ें और लिखें",
       "readOnly": "केवल पढ़ें",
@@ -460,10 +475,12 @@
       "validation": "कृपया सभी फ़ील्ड भरें; नया पासवर्ड कम से कम 6 अक्षरों का होना चाहिए और पुष्टि से मेल खाना चाहिए।"
     },
     "users": {
+      "subtitle": "Manage users, roles, and access credentials.",
       "cannotDeleteSelf": "आप अपना स्वयं का खाता नहीं हटा सकते।",
       "confirmRemove": "उपयोगकर्ता {user} को हटाएँ? इसे वापस नहीं किया जा सकता।",
       "createUser": "उपयोगकर्ता बनाएँ",
       "grantAdmin": "एडमिन अधिकार दें",
+      "grantAdminHint": "Grants full access to all settings and users.",
       "displayName": "प्रदर्शन नाम",
       "makeAdmin": "एडमिन बनाएं",
       "resetPassword": "पासवर्ड सेट/रीसेट करें",
@@ -490,6 +507,32 @@
       "volumePath": "वॉल्यूम पथ",
       "pathCannotChange": "निर्माण के बाद पथ बदला नहीं जा सकता। यदि आवश्यक हो तो इसे हटा दें और नया बनाएँ।",
       "accessMode": "पहुँच मोड"
+    },
+    "userDetails": {
+      "profileTab": "Profile",
+      "securityTab": "Security",
+      "generalInfo": "General Information",
+      "displayName": "Display Name",
+      "username": "Username",
+      "email": "Email Address",
+      "rolesAndPermissions": "Roles & Permissions",
+      "adminRole": "Administrator",
+      "adminRoleHint": "Can access all settings and manage users.",
+      "grantAdmin": "Grand Admin",
+      "revokeAdmin": "Revoke Admin",
+      "dangerZone": "Danger Zone",
+      "deleteUserMessage": "Permanently remove this user and all their data. This action cannot be undone.",
+      "deleteUser": "Delete User",
+      "password": "Password",
+      "localPassword": "Local Password",
+      "localPasswordExistHint": "User has a local password set.",
+      "localPasswordNotExistHint": "User does not have a local password set.",
+      "setLocalPassword": "Set Password",
+      "resetLocalPassword": "Reset Password",
+      "sso": "Single Sign-On (OIDC)",
+      "oidcProvider": "OIDC Provider",
+      "oidcLinkedProfile": "Linked Profile",
+      "noOidcProfileMessage": "No OIDC profiles linked to this account."
     }
   },
   "share": {
@@ -501,12 +544,16 @@
     "createShareLink": "शेयर लिंक बनाएँ",
     "shareLink": "शेयर लिंक",
     "shareLinkCreatedSuccess": "शेयर लिंक सफलतापूर्वक बनाया गया!",
+    "access": "Access Mode",
+    "type": "Target",
     "shareSelectedItem": "चयनित आइटम साझा करें",
     "selectItemToShare": "साझा करने के लिए एक आइटम चुनें",
     "sharing": "साझा किया जा रहा है:",
     "sharedItem": "साझा आइटम",
     "sharedFolder": "साझा फ़ोल्डर",
     "sharedFile": "साझा फ़ाइल",
+    "label": "Label",
+    "labelPlaceholder": "e.g. My Project",
     "accessMode": "पहुँच मोड",
     "whoCanAccess": "कौन पहुँच सकता है",
     "anyoneWithLink": "लिंक वाला कोई भी",
@@ -544,7 +591,8 @@
     "mySharesCount": "{count} सक्रिय शेयर लिंक",
     "confirmDeleteShare": "क्या आप इस शेयर को हटाना चाहते हैं? लिंक वाले लोगों को अब एक्सेस नहीं मिलेगा।",
     "removeShare": "शेयर हटाएं",
-    "sharedWithAnyone": "किसी के साथ भी साझा किया गया",
-    "sharedWithUsers": "{count} उपयोगकर्ता"
+    "sharedWithAnyone": "सभी",
+    "sharedWithUsers": "{count} उपयोगकर्ता",
+    "expiresNever": "कभी नहीं"
   }
 }

@@ -8,6 +8,35 @@ const logger = require('../utils/logger');
 
 let dbInstance = null;
 
+// DDL for the folder size index. Kept as a constant so it can be applied both by
+// the versioned migration (clean installs) and idempotently on every open — the
+// latter guarantees the table exists even when the recorded schema_version was
+// already advanced past this migration by a different build sharing /config.
+/** Adds a column only when the table does not already have it. */
+const addColumnIfMissing = (db, tableName, columnName, definition) => {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (!columns.some((column) => column.name === columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${definition}`);
+  }
+};
+
+const FOLDER_SIZE_INDEX_DDL = `
+  CREATE TABLE IF NOT EXISTS folder_size_index (
+    path_hash         TEXT PRIMARY KEY,
+    parent_hash       TEXT,
+    volume            TEXT NOT NULL,
+    relative_path     TEXT NOT NULL,
+    size_bytes        INTEGER NOT NULL DEFAULT 0,
+    entry_count       INTEGER NOT NULL DEFAULT 0,
+    last_delta_at     DATETIME,
+    last_full_scan_at DATETIME,
+    dirty             INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_folder_size_parent ON folder_size_index(parent_hash);
+  CREATE INDEX IF NOT EXISTS idx_folder_size_volume ON folder_size_index(volume);
+`;
+
+
 const getDbPath = () => {
   const configDir = directories.config;
   // Generic app database for auth, shares, and user settings.
@@ -31,7 +60,7 @@ const migrate = (db) => {
     );
   `);
 
-  const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
+const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
   let version = Number(getVersion.get('schema_version') || 0);
 
   db.transaction(() => {
@@ -353,6 +382,43 @@ const migrate = (db) => {
       );
       version = 8;
     }
+    if (version < 9) {
+      logger.info('[DB Migration] Migrating to v9: Full-text search index...');
+      // eslint-disable-next-line global-require
+      db.exec(require('./searchIndexStore').SEARCH_INDEX_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(9)
+      );
+      version = 9;
+    }
+    if (version < 10) {
+      logger.info('[DB Migration] Migrating to v10: Folder size index...');
+      db.exec(FOLDER_SIZE_INDEX_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(10)
+      );
+      version = 10;
+    }
+    if (version < 11) {
+      logger.info('[DB Migration] Migrating to v11: One personal folder per account...');
+      addColumnIfMissing(db, 'users', 'personal_folder_name', 'personal_folder_name TEXT');
+      // SQLite lets a unique index hold any number of NULLs, so an account that
+      // has not claimed a name yet does not collide with the others.
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_personal_folder ON users(personal_folder_name);'
+      );
+      // eslint-disable-next-line global-require
+      const { claimAllPersonalFolderNames } = require('./personalFolders');
+      const claimed = claimAllPersonalFolderNames(db);
+      logger.info({ claimed }, '[DB Migration] Personal folder names assigned');
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(11)
+      );
+      version = 11;
+    }
   })();
 };
 
@@ -575,6 +641,14 @@ const getDb = async () => {
 
   const db = new Database(dbPath);
   migrate(db);
+  // Applied on every open as well as by the migration above: a database created
+  // by another build sharing this /config may already be past v10 without the
+  // table, which would make the indexer fail with "no such table".
+  try {
+    db.exec(FOLDER_SIZE_INDEX_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure folder_size_index table');
+  }
   ensureAnonymousUser(db);
   dbInstance = db;
   return dbInstance;

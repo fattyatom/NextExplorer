@@ -72,6 +72,11 @@
     "readwrite": "Lectura/Escritura"
   },
   "editor": {
+    "editing": "Editing",
+    "unsavedChanges": "Unsaved changes",
+    "theme": "Theme",
+    "editorSettings": "Editor settings",
+    "wrapLines": "Wrap Lines",
     "confirmCloseWithoutSaving": "Tienes cambios sin guardar. ¿Cerrar sin guardar?"
   },
   "status": {
@@ -90,6 +95,7 @@
     "paste": "Pegar",
     "rename": "Renombrar",
     "download": "Descargar",
+    "downloadFolder": "Descargar carpeta",
     "extractZip": "Extraer ZIP",
     "compressToZip": "Comprimir a ZIP",
     "search": "Buscar",
@@ -210,6 +216,7 @@
   "context": {
     "getInfo": "Obtener información",
     "openWithEditor": "Abrir con el editor",
+    "openWithTerminal": "Abrir en terminal",
     "addToFavorites": "Agregar a favoritos",
     "removeFromFavorites": "Quitar de favoritos",
     "deleteTitle": {
@@ -410,9 +417,15 @@
       "title": "Preferencias de usuario",
       "subtitle": "Personaliza tus ajustes personales.",
       "showHiddenFiles": "Mostrar archivos ocultos",
-      "showHiddenFilesHelp": "Muestra archivos y carpetas que comienzan con puntuación (.) en el explorador.",
+      "showHiddenFilesHelp": "Muestra archivos y carpetas que coinciden con los patrones ocultos configurados ({patterns}) en el explorador.",
       "showThumbnails": "Mostrar miniaturas",
       "showThumbnailsHelp": "Muestra previsualizaciones en miniatura para imágenes y vídeos.",
+      "showSidebarFavorites": "Mostrar sección Favoritos",
+      "showSidebarFavoritesHelp": "Muestra Favoritos en la barra lateral izquierda.",
+      "showSidebarShares": "Mostrar sección Compartidos",
+      "showSidebarSharesHelp": "Muestra Compartidos en la barra lateral izquierda.",
+      "showSidebarTools": "Mostrar sección Herramientas",
+      "showSidebarToolsHelp": "Muestra Herramientas en la barra lateral izquierda.",
       "defaultShareExpiration": "Caducidad predeterminada para compartir",
       "defaultShareExpirationHelp": "Establece un período por defecto para nuevas comparticiones. La fecha de caducidad se rellena automáticamente basándose en este valor.",
       "expirationValue": "Valor",
@@ -442,6 +455,8 @@
     },
     "access": {
       "subtitle": "Define permisos por carpeta: lectura y escritura, solo lectura u oculta.",
+      "noRules": "No access rules configured.",
+      "noRulesHint": "Click \"Add Rule\" to create your first rule.",
       "recursive": "Recursivo",
       "readWrite": "Lectura y escritura",
       "readOnly": "Solo lectura",
@@ -460,10 +475,12 @@
       "validation": "Rellena todos los campos; la nueva contraseña debe tener al menos 6 caracteres y coincidir con la confirmación."
     },
     "users": {
+      "subtitle": "Manage users, roles, and access credentials.",
       "cannotDeleteSelf": "No puedes eliminar tu propia cuenta.",
       "confirmRemove": "¿Eliminar al usuario {user}? Esto no se puede deshacer.",
       "createUser": "Crear usuario",
       "grantAdmin": "Conceder administrador",
+      "grantAdminHint": "Grants full access to all settings and users.",
       "displayName": "Nombre para mostrar",
       "makeAdmin": "Hacer administrador",
       "resetPassword": "Establecer/restablecer contraseña",
@@ -490,6 +507,32 @@
       "volumePath": "Ruta del volumen",
       "pathCannotChange": "La ruta no se puede cambiar después de la creación. Elimine este volumen y cree uno nuevo si es necesario.",
       "accessMode": "Modo de acceso"
+    },
+    "userDetails": {
+      "profileTab": "Profile",
+      "securityTab": "Security",
+      "generalInfo": "General Information",
+      "displayName": "Display Name",
+      "username": "Username",
+      "email": "Email Address",
+      "rolesAndPermissions": "Roles & Permissions",
+      "adminRole": "Administrator",
+      "adminRoleHint": "Can access all settings and manage users.",
+      "grantAdmin": "Grand Admin",
+      "revokeAdmin": "Revoke Admin",
+      "dangerZone": "Danger Zone",
+      "deleteUserMessage": "Permanently remove this user and all their data. This action cannot be undone.",
+      "deleteUser": "Delete User",
+      "password": "Password",
+      "localPassword": "Local Password",
+      "localPasswordExistHint": "User has a local password set.",
+      "localPasswordNotExistHint": "User does not have a local password set.",
+      "setLocalPassword": "Set Password",
+      "resetLocalPassword": "Reset Password",
+      "sso": "Single Sign-On (OIDC)",
+      "oidcProvider": "OIDC Provider",
+      "oidcLinkedProfile": "Linked Profile",
+      "noOidcProfileMessage": "No OIDC profiles linked to this account."
     }
   },
   "share": {
@@ -501,12 +544,16 @@
     "createShareLink": "Crear enlace para compartir",
     "shareLink": "Enlace para compartir",
     "shareLinkCreatedSuccess": "¡Enlace de compartición creado correctamente!",
+    "access": "Access Mode",
+    "type": "Target",
     "shareSelectedItem": "Compartir elemento seleccionado",
     "selectItemToShare": "Selecciona un elemento para compartir",
     "sharing": "Compartiendo:",
     "sharedItem": "Elemento compartido",
     "sharedFolder": "Carpeta compartida",
     "sharedFile": "Archivo compartido",
+    "label": "Label",
+    "labelPlaceholder": "e.g. My Project",
     "accessMode": "Modo de acceso",
     "whoCanAccess": "Quién puede acceder",
     "anyoneWithLink": "Cualquiera con el enlace",
@@ -544,7 +591,8 @@
     "mySharesCount": "{count} enlaces de compartición activos",
     "confirmDeleteShare": "¿Eliminar esta compartición? Las personas con el enlace ya no tendrán acceso.",
     "removeShare": "Eliminar compartición",
-    "sharedWithAnyone": "Compartido con cualquiera",
-    "sharedWithUsers": "{count} usuario | {count} usuarios"
+    "sharedWithAnyone": "Todos",
+    "sharedWithUsers": "{count} usuario | {count} usuarios",
+    "expiresNever": "Nunca"
   }
 }

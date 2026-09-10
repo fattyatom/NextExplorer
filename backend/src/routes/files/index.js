@@ -6,6 +6,7 @@ const deleteRoutes = require('./delete');
 const downloadRoutes = require('./download');
 const rangeDownloadRoutes = require('./rangeDownload');
 const previewRoutes = require('./preview');
+const mediaRoutes = require('./media');
 
 const router = express.Router();
 
@@ -16,5 +17,6 @@ router.use(deleteRoutes);
 router.use(downloadRoutes);
 router.use(rangeDownloadRoutes);
 router.use(previewRoutes);
+router.use(mediaRoutes);
 
 module.exports = router;

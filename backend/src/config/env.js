@@ -18,9 +18,15 @@ module.exports = {
   CACHE_DIR: process.env.CACHE_DIR || '/cache',
   USER_ROOT: process.env.USER_ROOT || '',
   USER_FOLDER_NAME_ORDER: process.env.USER_FOLDER_NAME_ORDER?.trim() || null,
+  HIDDEN_FILE_PATTERNS: process.env.HIDDEN_FILE_PATTERNS,
 
   // Public URL & Network
   PUBLIC_URL: process.env.PUBLIC_URL?.trim() || null,
+  // Additional origin(s) the app can legitimately be reached from (e.g. a LAN IP
+  // used for fast local uploads). Comma-separated. These are treated as valid
+  // (no public-URL mismatch warning) and accepted by CORS, while PUBLIC_URL stays
+  // the canonical URL used to build share links, OIDC callbacks, etc.
+  INTERNAL_URL: process.env.INTERNAL_URL?.trim() || null,
   TRUST_PROXY: process.env.TRUST_PROXY?.trim().toLowerCase(),
 
   // CORS
@@ -52,6 +58,8 @@ module.exports = {
   OIDC_CLIENT_ID: process.env.OIDC_CLIENT_ID || null,
   OIDC_CLIENT_SECRET: process.env.OIDC_CLIENT_SECRET || null,
   OIDC_CALLBACK_URL: process.env.OIDC_CALLBACK_URL || process.env.OIDC_REDIRECT_URI || null,
+  // Allowlisted native app redirect URIs for the mobile OIDC bridge (iOS/Android).
+  OIDC_MOBILE_REDIRECT_URIS: process.env.OIDC_MOBILE_REDIRECT_URIS || null,
   OIDC_SCOPES: process.env.OIDC_SCOPES || process.env.OIDC_SCOPE || null,
   OIDC_ADMIN_GROUPS: process.env.OIDC_ADMIN_GROUPS || process.env.OIDC_ADMIN_GROUP || null,
   OIDC_REQUIRE_EMAIL_VERIFIED: normalizeBoolean(process.env.OIDC_REQUIRE_EMAIL_VERIFIED) || false,
@@ -61,6 +69,30 @@ module.exports = {
   // Search
   SEARCH_DEEP: normalizeBoolean(process.env.SEARCH_DEEP),
   SEARCH_RIPGREP: normalizeBoolean(process.env.SEARCH_RIPGREP),
+  // --- Archive extraction ---
+  MAX_EXTRACTED_ARCHIVE_SIZE: process.env.MAX_EXTRACTED_ARCHIVE_SIZE?.trim() || null,
+  MAX_ARCHIVE_ENTRIES: Number(process.env.MAX_ARCHIVE_ENTRIES) || 100000,
+  ARCHIVE_EXTENSIONS: process.env.ARCHIVE_EXTENSIONS || '',
+  // --- Folder size index ---
+  FOLDER_SIZE_MODE: process.env.FOLDER_SIZE_MODE?.trim().toLowerCase() || 'off',
+  FOLDER_SIZE_EXCLUDE_PATHS: process.env.FOLDER_SIZE_EXCLUDE_PATHS || '',
+  FOLDER_SIZE_CONCURRENCY: Number(process.env.FOLDER_SIZE_CONCURRENCY) || 6,
+  FOLDER_SIZE_NETWORK_CONCURRENCY: Number(process.env.FOLDER_SIZE_NETWORK_CONCURRENCY) || 2,
+  FOLDER_SIZE_FLUSH_MS: Number(process.env.FOLDER_SIZE_FLUSH_MS) || 3000,
+  FOLDER_SIZE_RECONCILE_MS: Number(process.env.FOLDER_SIZE_RECONCILE_MS) || 0,
+  FOLDER_SIZE_RECONCILE_MIN_MS: Number(process.env.FOLDER_SIZE_RECONCILE_MIN_MS) || 900000,
+  FOLDER_SIZE_RECONCILE_MAX_MS: Number(process.env.FOLDER_SIZE_RECONCILE_MAX_MS) || 43200000,
+  FOLDER_SIZE_RECONCILE_BATCH: Number(process.env.FOLDER_SIZE_RECONCILE_BATCH) || 100,
+  FOLDER_SIZE_REBUILD: normalizeBoolean(process.env.FOLDER_SIZE_REBUILD) || false,
+  // --- Search index ---
+  SEARCH_INDEX: normalizeBoolean(process.env.SEARCH_INDEX) ?? false,
+  SEARCH_INDEX_BATCH: Number(process.env.SEARCH_INDEX_BATCH) || null,
+  SEARCH_INDEX_CPU_PERCENT: Number(process.env.SEARCH_INDEX_CPU_PERCENT) || null,
+  SEARCH_INDEX_MEMORY_MB: Number(process.env.SEARCH_INDEX_MEMORY_MB) || null,
+  SEARCH_INDEX_EXCLUDE: process.env.SEARCH_INDEX_EXCLUDE?.trim() || null,
+  SEARCH_INDEX_REBUILD: normalizeBoolean(process.env.SEARCH_INDEX_REBUILD) ?? false,
+  SEARCH_INDEX_RECONCILE_MS: Number(process.env.SEARCH_INDEX_RECONCILE_MS) || null,
+  SEARCH_TIMEOUT_MS: Number(process.env.SEARCH_TIMEOUT_MS) || null,
   SEARCH_MAX_FILESIZE: process.env.SEARCH_MAX_FILESIZE?.trim() || null,
 
   // OnlyOffice
@@ -83,6 +115,7 @@ module.exports = {
   USER_VOLUMES: normalizeBoolean(process.env.USER_VOLUMES) || false,
   SKIP_HOME: normalizeBoolean(process.env.SKIP_HOME) || false,
   TERMINAL_ENABLED: normalizeBoolean(process.env.TERMINAL_ENABLED) ?? true,
+  TERMINAL_FILE_EXTENSIONS: process.env.TERMINAL_FILE_EXTENSIONS || 'sh',
 
   // Editor
   EDITOR_EXTENSIONS: process.env.EDITOR_EXTENSIONS || '',

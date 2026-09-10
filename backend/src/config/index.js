@@ -11,10 +11,100 @@ const parseCommaOrSpaceList = (raw) => {
   return parts.map((s) => s.trim()).filter(Boolean);
 };
 
+const DEFAULT_HIDDEN_FILE_PATTERNS = ['.'];
+
+const parseRegexPattern = (token) => {
+  if (token.startsWith('regex:')) {
+    return { source: token.slice('regex:'.length), flags: '' };
+  }
+
+  if (token.startsWith('/')) {
+    const lastSlash = token.lastIndexOf('/');
+    if (lastSlash > 0) {
+      return {
+        source: token.slice(1, lastSlash),
+        flags: token.slice(lastSlash + 1),
+      };
+    }
+  }
+
+  return null;
+};
+
+const escapeRipgrepGlob = (value) => String(value).replace(/[\\*?\[\]{}]/g, '\\$&');
+
+const parseHiddenFilePatterns = (raw) => {
+  const tokens = raw == null ? DEFAULT_HIDDEN_FILE_PATTERNS : parseCommaOrSpaceList(raw);
+  const prefixes = [];
+  const regexes = [];
+
+  for (const token of tokens) {
+    const regexPattern = parseRegexPattern(token);
+    if (!regexPattern) {
+      prefixes.push(token);
+      continue;
+    }
+
+    try {
+      regexes.push(new RegExp(regexPattern.source, regexPattern.flags));
+    } catch (err) {
+      console.warn(`[Config] Invalid hidden file regex "${token}": ${err.message}`);
+    }
+  }
+
+  const isHiddenName = (name) => {
+    if (!name) return false;
+    const baseName = String(name);
+    if (prefixes.some((prefix) => prefix && baseName.startsWith(prefix))) return true;
+
+    return regexes.some((regex) => {
+      regex.lastIndex = 0;
+      return regex.test(baseName);
+    });
+  };
+
+  const isHiddenPath = (value) =>
+    String(value || '')
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .some(isHiddenName);
+
+  return {
+    patterns: tokens,
+    prefixes,
+    regexes,
+    isHiddenName,
+    isHiddenPath,
+    ripgrepGlobExcludes: prefixes
+      .filter((prefix) => prefix && !/[\\/]/.test(prefix))
+      .map((prefix) => `!${escapeRipgrepGlob(prefix)}*`),
+  };
+};
+
+const parseExtensionList = (raw) =>
+  String(raw || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .map((s) => (s.startsWith('.') ? s.slice(1) : s))
+    .filter(Boolean);
+
 // Helper: Parse comma/space-separated scopes
 const parseScopes = (raw) => {
   const list = parseCommaOrSpaceList(raw);
   return list.length ? list : null;
+};
+
+// Native app redirect URIs for the mobile OIDC bridge. Case preserving (schemes
+// are case sensitive) and restricted to custom scheme URIs so the bridge can
+// never be pointed at an http(s) open redirect. Falls back to a shared default.
+const DEFAULT_MOBILE_REDIRECT_URIS = ['nextexplorer://oidc-callback'];
+const parseMobileRedirectUris = (raw) => {
+  const list = String(raw || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((uri) => /^[a-z][a-z0-9+.-]*:\/\//i.test(uri) && !/^https?:\/\//i.test(uri));
+  return list.length ? list : DEFAULT_MOBILE_REDIRECT_URIS;
 };
 
 // --- Personal folder naming ---
@@ -69,6 +159,29 @@ if (env.PUBLIC_URL) {
   }
 }
 
+// --- Additional (internal) origins ---
+// Extra origins the app can be reached from (e.g. a LAN IP), comma-separated.
+// They are considered valid so accessing the app that way doesn't raise the
+// public-URL mismatch warning, and they're accepted by CORS. PUBLIC_URL remains
+// the canonical URL used to build absolute links (shares, OIDC callbacks, WOPI).
+const parseOriginList = (value) =>
+  (typeof value === 'string' ? value.split(',') : [])
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      try {
+        return new URL(entry).origin;
+      } catch (err) {
+        console.warn(`[Config] Invalid INTERNAL_URL entry: ${entry}`);
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+const internalOrigins = parseOriginList(env.INTERNAL_URL);
+// All origins the frontend should treat as valid (publicOrigin first, deduped).
+const knownOrigins = [...new Set([publicOrigin, ...internalOrigins].filter(Boolean))];
+
 // --- CORS ---
 const buildCorsConfig = () => {
   if (env.CORS_ORIGINS) {
@@ -80,7 +193,7 @@ const buildCorsConfig = () => {
         .filter(Boolean),
     };
   }
-  if (publicOrigin) return { allowAll: false, origins: [publicOrigin] };
+  if (knownOrigins.length) return { allowAll: false, origins: [...knownOrigins] };
   return { allowAll: true, origins: [] }; // Backwards compatibility
 };
 
@@ -145,6 +258,7 @@ const auth = {
     adminGroups: parseScopes(env.OIDC_ADMIN_GROUPS) || null,
     requireEmailVerified: env.OIDC_REQUIRE_EMAIL_VERIFIED,
     autoCreateUsers: env.OIDC_AUTO_CREATE_USERS,
+    mobileRedirectUris: parseMobileRedirectUris(env.OIDC_MOBILE_REDIRECT_URIS),
   },
 };
 
@@ -189,11 +303,13 @@ const editorMaxFileSizeBytes = (() => {
 })();
 
 const editor = {
-  extensions: env.EDITOR_EXTENSIONS.split(',')
-    .map((s) => s.trim().toLowerCase())
-    .map((s) => (s.startsWith('.') ? s.slice(1) : s))
-    .filter(Boolean),
+  extensions: parseExtensionList(env.EDITOR_EXTENSIONS),
   maxFileSizeBytes: editorMaxFileSizeBytes,
+};
+
+// --- Terminal ---
+const terminal = {
+  extensions: parseExtensionList(env.TERMINAL_FILE_EXTENSIONS),
 };
 
 // --- Favorites ---
@@ -205,6 +321,9 @@ const favorites = {
 const personal = {
   userFolderNameOrder: parseUserFolderNameOrder(env.USER_FOLDER_NAME_ORDER),
 };
+
+// --- Hidden file patterns ---
+const hiddenFiles = parseHiddenFilePatterns(env.HIDDEN_FILE_PATTERNS);
 
 // --- Shares ---
 const shares = {
@@ -218,7 +337,102 @@ const shares = {
 };
 
 // --- Main Export ---
+
+// --- Archive extraction ---
+// Extensions the app is willing to offer for extraction, provided the local
+// 7-Zip build actually supports them (checked at runtime by archiveService).
+// A whitelist keeps container-ish formats 7-Zip can technically read (docx,
+// apk, exe…) from being presented as archives in the UI.
+const DEFAULT_ARCHIVE_EXTENSIONS = [
+  '7z',
+  'zip',
+  'iso',
+  'rar',
+  'tar',
+  'gz',
+  'tgz',
+  'bz2',
+  'tbz2',
+  'xz',
+  'txz',
+  'cab',
+  'wim',
+  'cpio',
+  'rpm',
+  'deb',
+  'z',
+  'lzh',
+  'arj',
+  'zst',
+];
+
+const archives = (() => {
+  const raw = String(env.ARCHIVE_EXTENSIONS || '').trim();
+  // Extraction guards, generous enough for real archives but low enough that a
+  // crafted one cannot fill the volume before anyone notices.
+  const limits = {
+    maxExtractedBytes: (() => {
+      const parsed = parseByteSize(env.MAX_EXTRACTED_ARCHIVE_SIZE);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 32 * 1024 * 1024 * 1024;
+    })(),
+    maxEntries: env.MAX_ARCHIVE_ENTRIES,
+  };
+  if (!raw) return { extensions: DEFAULT_ARCHIVE_EXTENSIONS, ...limits };
+  // 'zip,iso' replaces the default list; '+udf,squashfs' extends it.
+  const extend = raw.startsWith('+');
+  const list = parseExtensionList(extend ? raw.slice(1) : raw);
+  return {
+    extensions: extend ? [...new Set([...DEFAULT_ARCHIVE_EXTENSIONS, ...list])] : list,
+    ...limits,
+  };
+})();
+
+// --- Folder size index ---
+const VALID_FOLDER_SIZE_MODES = new Set(['off', 'shallow', 'full']);
+const folderSizeMode = VALID_FOLDER_SIZE_MODES.has(env.FOLDER_SIZE_MODE)
+  ? env.FOLDER_SIZE_MODE
+  : 'off';
+
+const folderSize = {
+  mode: folderSizeMode,
+  enabled: folderSizeMode !== 'off',
+  envExcludedPaths: env.FOLDER_SIZE_EXCLUDE_PATHS,
+  concurrency: env.FOLDER_SIZE_CONCURRENCY,
+  networkConcurrency: env.FOLDER_SIZE_NETWORK_CONCURRENCY,
+  flushMs: env.FOLDER_SIZE_FLUSH_MS,
+  reconcileMs: env.FOLDER_SIZE_RECONCILE_MS,
+  reconcileMinMs: env.FOLDER_SIZE_RECONCILE_MIN_MS,
+  reconcileMaxMs: env.FOLDER_SIZE_RECONCILE_MAX_MS,
+  reconcileBatch: env.FOLDER_SIZE_RECONCILE_BATCH,
+  reconcilePauseMs: env.FOLDER_SIZE_RECONCILE_PAUSE_MS,
+  reconcileMaxDirectories:
+    Number.isFinite(env.FOLDER_SIZE_RECONCILE_MAX_DIRECTORIES) &&
+    env.FOLDER_SIZE_RECONCILE_MAX_DIRECTORIES >= 0
+      ? Math.floor(env.FOLDER_SIZE_RECONCILE_MAX_DIRECTORIES)
+      : 200,
+  subtreeBatch:
+    Number.isFinite(env.FOLDER_SIZE_SUBTREE_BATCH) && env.FOLDER_SIZE_SUBTREE_BATCH > 0
+      ? Math.floor(env.FOLDER_SIZE_SUBTREE_BATCH)
+      : env.FOLDER_SIZE_RECONCILE_BATCH,
+  subtreePauseMs:
+    Number.isFinite(env.FOLDER_SIZE_SUBTREE_PAUSE_MS) && env.FOLDER_SIZE_SUBTREE_PAUSE_MS >= 0
+      ? env.FOLDER_SIZE_SUBTREE_PAUSE_MS
+      : env.FOLDER_SIZE_RECONCILE_PAUSE_MS,
+  subtreeSlowLogMs: Math.max(0, env.FOLDER_SIZE_SUBTREE_SLOW_LOG_MS),
+  ioTimeoutMs:
+    Number.isFinite(env.FOLDER_SIZE_IO_TIMEOUT_MS) && env.FOLDER_SIZE_IO_TIMEOUT_MS >= 0
+      ? env.FOLDER_SIZE_IO_TIMEOUT_MS
+      : 30000,
+  maxStalledIo:
+    Number.isFinite(env.FOLDER_SIZE_MAX_STALLED_IO) && env.FOLDER_SIZE_MAX_STALLED_IO > 0
+      ? Math.floor(env.FOLDER_SIZE_MAX_STALLED_IO)
+      : 2,
+  rebuild: env.FOLDER_SIZE_REBUILD,
+};
+
 module.exports = {
+  folderSize,
+  archives,
   port: env.PORT,
   address: env.ADDRESS,
   http: {
@@ -230,7 +444,7 @@ module.exports = {
     passwordConfig: path.join(configDir, 'app-config.json'),
   },
 
-  public: { url: publicUrl, origin: publicOrigin },
+  public: { url: publicUrl, origin: publicOrigin, origins: knownOrigins },
 
   extensions: {
     images: constants.IMAGE_EXTENSIONS,
@@ -252,17 +466,83 @@ module.exports = {
     ripgrep: env.SEARCH_RIPGREP ?? true,
     maxFileSize: env.SEARCH_MAX_FILESIZE,
     maxFileSizeBytes: searchMaxFileSizeBytes,
+    // How long one search may spend looking before answering with what it has.
+    // Reading a large tree to be certain there is nothing more is worse than
+    // an answer that arrives.
+    timeoutMs:
+      Number.isFinite(env.SEARCH_TIMEOUT_MS) && env.SEARCH_TIMEOUT_MS > 0
+        ? env.SEARCH_TIMEOUT_MS
+        : 5000,
+    index: {
+      // Off unless asked for: an index is a promise to keep something up to
+      // date, and that is a decision rather than a default.
+      enabled: env.SEARCH_INDEX === true,
+      // Throw the index away at startup and read everything again. For when
+      // the index is suspected rather than trusted: it is derived data, so
+      // there is nothing in it that the files themselves do not say.
+      rebuild: env.SEARCH_INDEX_REBUILD === true,
+      // How many documents share one transaction. Small on purpose: a long
+      // transaction is a long stretch of the only thread the server has.
+      batch:
+        Number.isFinite(env.SEARCH_INDEX_BATCH) && env.SEARCH_INDEX_BATCH > 0
+          ? Math.floor(env.SEARCH_INDEX_BATCH)
+          : 25,
+      // The share of one core a pass may take. This replaces a pause counted
+      // per batch, which paced nothing: the cost of a batch is the cost of the
+      // files in it, and a fixed pause after an unbounded amount of work is
+      // not a limit on anything. A share of time is.
+      cpuPercent:
+        Number.isFinite(env.SEARCH_INDEX_CPU_PERCENT) &&
+        env.SEARCH_INDEX_CPU_PERCENT > 0 &&
+        env.SEARCH_INDEX_CPU_PERCENT <= 100
+          ? env.SEARCH_INDEX_CPU_PERCENT
+          : 25,
+      // Folders the index has no business reading. The volume is the user's,
+      // and what is worth searching in it is theirs to say: a build tree, a
+      // mail spool, a backup of a machine — hundreds of thousands of files
+      // each, none of them anything anyone searches for by content.
+      //
+      // Named rather than guessed at. A list of "obviously noise" directories
+      // baked in here would decide, for everyone, that something is not worth
+      // finding — and with the index answering in place of the live scan, that
+      // decision would be invisible.
+      exclude: String(env.SEARCH_INDEX_EXCLUDE || '')
+        .split(/[\n,]/)
+        .map((entry) => entry.trim().replace(/^\/+|\/+$/g, ''))
+        .filter(Boolean),
+      // What a pass may add to the process before it gives up and waits for
+      // the next one. Every other bound is a belief about what a file costs;
+      // this is what holds when one of those beliefs is wrong.
+      //
+      // Only consulted when the container enforces no limit of its own; where
+      // it does, that limit is the ceiling and this is ignored. A pass over
+      // two hundred thousand documents was measured growing sixty megabytes,
+      // but the figure this is compared against is the whole process, so it
+      // has to leave room for everything else that runs during the twenty-odd
+      // minutes a pass takes.
+      memoryBudgetBytes:
+        Number.isFinite(env.SEARCH_INDEX_MEMORY_MB) && env.SEARCH_INDEX_MEMORY_MB > 0
+          ? env.SEARCH_INDEX_MEMORY_MB * 1024 * 1024
+          : 256 * 1024 * 1024,
+      reconcileMs:
+        Number.isFinite(env.SEARCH_INDEX_RECONCILE_MS) && env.SEARCH_INDEX_RECONCILE_MS > 0
+          ? env.SEARCH_INDEX_RECONCILE_MS
+          : 60 * 60 * 1000,
+    },
   },
 
   thumbnails: { size: 200, quality: 70 },
   onlyoffice,
   collabora,
   editor,
+  terminal,
   favorites,
   shares,
+  hiddenFiles,
 
   features: {
     volumeUsage: env.SHOW_VOLUME_USAGE,
+    folderSizeMode,
     personalFolders: env.USER_DIR_ENABLED,
     userVolumes: env.USER_VOLUMES,
     shares: env.SHARES_ENABLED,

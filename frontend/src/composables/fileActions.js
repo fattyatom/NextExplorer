@@ -31,6 +31,10 @@ export function useFileActions() {
   const locationCanWrite = computed(() => fileStore.currentPathData?.canWrite ?? true);
   const locationCanUpload = computed(() => fileStore.currentPathData?.canUpload ?? true);
   const locationCanDelete = computed(() => fileStore.currentPathData?.canDelete ?? true);
+  const locationCanDownload = computed(() => fileStore.currentPathData?.canDownload ?? true);
+  const currentDirectoryPath = computed(() => normalizePath(fileStore.getCurrentPath || ''));
+  const currentPathIsDirectory = computed(() => fileStore.currentPathData?.isDirectory === true);
+  const isSharePath = computed(() => currentDirectoryPath.value.startsWith('share/'));
 
   const isZipSelected = computed(() => {
     if (!isSingleItemSelected.value || !primaryItem.value) return false;
@@ -72,6 +76,13 @@ export function useFileActions() {
       locationCanWrite.value &&
       selectionHasUniformParent.value &&
       selectedItems.value.every((item) => item?.kind !== 'volume')
+  );
+  const canDownloadCurrentFolder = computed(
+    () =>
+      isSharePath.value &&
+      locationCanDownload.value &&
+      currentPathIsDirectory.value &&
+      Boolean(currentDirectoryPath.value)
   );
 
   const isCutActive = computed(() => fileStore.cutItems.length > 0);
@@ -135,39 +146,14 @@ export function useFileActions() {
     }
   };
 
-  const runDownload = async () => {
-    if (!hasSelection.value) return;
-
-    const items = selectedItems.value;
-    const currentPath = normalizePath(fileStore.getCurrentPath || '');
-
-    const isSingleFile =
-      items.length === 1 &&
-      items[0].kind !== 'directory' &&
-      items[0].kind !== 'volume';
-
-    if (isSingleFile) {
-      const item = items[0];
-      const filePath = resolveItemPath(item);
-      if (!filePath) return;
-
-      await trackedDownload(item.name, item.size, (onProgress, signal) =>
-        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal })
-      );
-      return;
-    }
-
-    const paths = items
-      .map((item) => {
-        const parent = normalizePath(item.path || '');
-        const combined = parent ? `${parent}/${item.name}` : item.name;
-        return normalizePath(combined);
-      })
-      .filter(Boolean);
-
+  const submitDownloadRequest = async (paths, basePath = '') => {
     if (!paths.length) return;
 
-    const zipName = items.length === 1 ? `${items[0].name}.zip` : 'download.zip';
+    const currentPath = normalizePath(basePath || '');
+    const zipName =
+      paths.length === 1
+        ? `${paths[0].split('/').filter(Boolean).pop() || 'download'}.zip`
+        : 'download.zip';
 
     // Mirror the upload path: chunk size + enable toggle come from app settings.
     const ct = useAppSettings().systemSettings?.chunkedTransfers;
@@ -188,6 +174,36 @@ export function useFileActions() {
     , 'Preparing zip…');
   };
 
+  const runDownload = async () => {
+    if (!hasSelection.value) return;
+
+    const items = selectedItems.value;
+
+    // A lone file needs no zip — stream it straight through, so the transfer
+    // reports the real size instead of an archive built for one entry.
+    const isSingleFile =
+      items.length === 1 && items[0].kind !== 'directory' && items[0].kind !== 'volume';
+
+    if (isSingleFile) {
+      const item = items[0];
+      const filePath = resolveItemPath(item);
+      if (!filePath) return;
+
+      await trackedDownload(item.name, item.size, (onProgress, signal) =>
+        download({ path: filePath, filename: item.name, size: item.size, onProgress, signal })
+      );
+      return;
+    }
+
+    const paths = items.map(resolveItemPath).filter(Boolean);
+    await submitDownloadRequest(paths, currentDirectoryPath.value);
+  };
+
+  const runDownloadCurrentFolder = () => {
+    if (!canDownloadCurrentFolder.value) return;
+    submitDownloadRequest([currentDirectoryPath.value], currentDirectoryPath.value);
+  };
+
   return {
     // state
     selectedItems,
@@ -198,6 +214,7 @@ export function useFileActions() {
     locationCanWrite,
     locationCanUpload,
     locationCanDelete,
+    locationCanDownload,
     canCut,
     canCopy,
     canPaste,
@@ -205,6 +222,7 @@ export function useFileActions() {
     canRename,
     canExtractZip,
     canCompressToZip,
+    canDownloadCurrentFolder,
     isCutActive,
     isCopyActive,
     // helpers
@@ -220,5 +238,6 @@ export function useFileActions() {
     runCompressToZip,
     deleteNow,
     runDownload,
+    runDownloadCurrentFolder,
   };
 }

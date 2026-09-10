@@ -8,6 +8,8 @@ const { port, http, features, address } = require('./config/index');
 const logger = require('./utils/logger');
 const { printStartupBanner } = require('./utils/startupBanner');
 const terminalService = require('./services/terminalService');
+const searchIndexManager = require('./services/searchIndexManager');
+const folderSizeManager = require('./services/folderSizeManager');
 
 let server = null;
 
@@ -45,10 +47,17 @@ const startServer = async () => {
     logger.warn('Terminal disabled at runtime');
   }
 
+  // Deliberately not awaited: a server does not wait for its index to be
+  // ready, it answers from the live search until it is.
+  folderSizeManager.start();
+  searchIndexManager.start();
+
   // Cleanup on process termination
   const cleanup = () => {
     logger.info('Shutting down server...');
     terminalService.cleanup();
+    folderSizeManager.stop();
+    searchIndexManager.stop();
     server.close(() => {
       logger.info('Server closed');
       process.exit(0);

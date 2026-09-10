@@ -5,6 +5,9 @@ import { storeToRefs } from 'pinia';
 import FileIcon from '@/icons/FileIcon.vue';
 import { formatBytes, formatDate } from '@/utils';
 import { getKindLabel } from '@/utils/fileKinds';
+import FolderSizeLabel from '@/components/FolderSizeLabel.vue';
+import { useFolderSizeStore } from '@/stores/folderSize';
+import { useFeaturesStore } from '@/stores/features';
 import { useNavigation } from '@/composables/navigation';
 import { useSelection } from '@/composables/itemSelection';
 import { useFileStore } from '@/stores/fileStore';
@@ -24,6 +27,22 @@ const settings = useSettingsStore();
 const { openItem } = useNavigation();
 const { handleSelection, isSelected, toggleSelection } = useSelection();
 const fileStore = useFileStore();
+const folderSizeStore = useFolderSizeStore();
+const featuresStore = useFeaturesStore();
+
+const isDirectory = computed(() => props.item?.kind === 'directory');
+// item.path is the parent's logical path and item.name the entry name, so the
+// folder's own logical path — which is how the index knows it — is the two
+// joined.
+const folderFullPath = computed(() => {
+  const parent = props.item?.path || '';
+  const name = props.item?.name || '';
+  return parent ? `${parent}/${name}` : name;
+});
+const showFolderSize = computed(() => isDirectory.value && featuresStore.folderSizeEnabled);
+const folderSizeEntry = computed(() =>
+  showFolderSize.value ? folderSizeStore.sizeFor(folderFullPath.value) : null
+);
 const { renameState, selectionMode } = storeToRefs(fileStore);
 const { canDragDrop, handleDragStart } = useFileDragDrop();
 const contextMenu = useExplorerContextMenu();
@@ -56,6 +75,8 @@ const isCut = computed(() =>
       cutItem.name === props.item.name && (cutItem.path || '') === (props.item.path || '')
   )
 );
+
+const selected = computed(() => isSelected(props.item));
 
 const showSelectionControl = computed(() => !isTouchDevice.value || selectionMode.value);
 
@@ -220,7 +241,7 @@ if (isTouchDevice.value) {
       :draggable="canDragDrop() && !isRenaming"
       class="photo-cell relative w-full rounded-md overflow-hidden cursor-pointer select-none bg-neutral-100 dark:bg-zinc-800/60 hover:brightness-105"
       :class="{
-        'ring-2 ring-blue-500 dark:ring-blue-400': isSelected(item),
+        'ring-2 ring-blue-500 dark:ring-blue-400': selected,
         'opacity-60': isCut,
         'cursor-move': canDragDrop() && !isRenaming,
       }"
@@ -230,10 +251,8 @@ if (isTouchDevice.value) {
         type="button"
         :class="[
           selectionButtonBaseClass,
-          selectionButtonStateClass(isSelected(item)),
-          selectionMode || isSelected(item)
-            ? 'opacity-100'
-            : 'opacity-0 group-hover/item:opacity-100',
+          selectionButtonStateClass(selected),
+          selectionMode || selected ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100',
           'absolute right-2 top-2 z-10 h-5 w-5 rounded-md',
         ]"
         :aria-label="`Select ${item.name}`"
@@ -257,7 +276,7 @@ if (isTouchDevice.value) {
       class="relative flex flex-col items-center gap-2 p-2 rounded-xl cursor-pointer select-none"
       :class="[
         { 'opacity-60': isCut },
-        isSelected(item) ? 'bg-zinc-200/70 dark:bg-zinc-700/60' : '',
+        selected ? 'bg-zinc-200/70 dark:bg-zinc-700/60' : '',
         canDragDrop() && !isRenaming ? 'cursor-move' : '',
       ]"
     >
@@ -266,10 +285,8 @@ if (isTouchDevice.value) {
         type="button"
         :class="[
           selectionButtonBaseClass,
-          selectionButtonStateClass(isSelected(item)),
-          selectionMode || isSelected(item)
-            ? 'opacity-100'
-            : 'opacity-0 group-hover/item:opacity-100',
+          selectionButtonStateClass(selected),
+          selectionMode || selected ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100',
           'absolute right-2 top-2 z-10 h-5 w-5 rounded-md',
         ]"
         :aria-label="`Select ${item.name}`"
@@ -282,7 +299,7 @@ if (isTouchDevice.value) {
       <div
         class="text-sm text-center break-all line-clamp-2 rounded-md"
         :class="{
-          'bg-blue-500 text-white dark:bg-blue-600': isSelected(item) && !isRenaming,
+          'bg-blue-500 text-white dark:bg-blue-600': selected && !isRenaming,
         }"
       >
         <template v-if="isRenaming">
@@ -316,7 +333,7 @@ if (isTouchDevice.value) {
       class="relative flex items-center gap-2 p-4 rounded-md cursor-pointer select-none"
       :class="[
         { 'opacity-60': isCut },
-        isSelected(item) ? 'bg-zinc-200/70 dark:bg-zinc-700/60' : '',
+        selected ? 'bg-zinc-200/70 dark:bg-zinc-700/60' : '',
         canDragDrop() && !isRenaming ? 'cursor-move' : '',
       ]"
     >
@@ -325,10 +342,8 @@ if (isTouchDevice.value) {
         type="button"
         :class="[
           selectionButtonBaseClass,
-          selectionButtonStateClass(isSelected(item)),
-          selectionMode || isSelected(item)
-            ? 'opacity-100'
-            : 'opacity-0 group-hover/item:opacity-100',
+          selectionButtonStateClass(selected),
+          selectionMode || selected ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100',
           'absolute right-2 top-2 z-10 h-5 w-5 rounded-md',
         ]"
         :aria-label="`Select ${item.name}`"
@@ -341,7 +356,7 @@ if (isTouchDevice.value) {
       <div
         class="grow rounded-md px-2 -mx-2"
         :class="{
-          'bg-blue-500 text-white dark:bg-blue-600': isSelected(item) && !isRenaming,
+          'bg-blue-500 text-white dark:bg-blue-600': selected && !isRenaming,
         }"
       >
         <div class="break-all line-clamp-2">
@@ -363,7 +378,8 @@ if (isTouchDevice.value) {
           </template>
         </div>
         <p class="text-xs text-stone-400">
-          {{ formatBytes(item.size) }}
+          <FolderSizeLabel v-if="showFolderSize" :entry="folderSizeEntry" />
+          <template v-else>{{ formatBytes(item.size) }}</template>
         </p>
       </div>
     </div>
@@ -383,8 +399,8 @@ if (isTouchDevice.value) {
         'group-even/item:bg-zinc-100 dark:group-even/item:bg-neutral-700/30',
         {
           'text-white dark:text-white bg-blue-600 dark:bg-blue-600/80 group-even/item:bg-blue-600! dark:group-even/item:bg-blue-600/80!':
-            isSelected(item),
-          'opacity-60': isCut && !isSelected(item),
+            selected,
+          'opacity-60': isCut && !selected,
           'cursor-move': canDragDrop() && !isRenaming,
         },
       ]"
@@ -396,18 +412,25 @@ if (isTouchDevice.value) {
           v-if="showSelectionControl"
           type="button"
           :class="[
-            selectionButtonBaseClass,
-            selectionButtonStateClass(isSelected(item)),
-            selectionMode || isSelected(item)
-              ? 'opacity-100'
-              : 'opacity-0 group-hover/item:opacity-100',
-            'absolute left-1/2 top-1/2 z-10 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-md',
+            'absolute -top-1 -bottom-1 left-1/2 z-20 flex w-7 -translate-x-1/2 items-center justify-center',
+            selectionMode || selected ? 'opacity-100' : 'opacity-0 group-hover/item:opacity-100',
           ]"
           :aria-label="`Select ${item.name}`"
+          @pointerdown.stop
+          @mousedown.stop
+          @mouseup.stop
           @click="handleToggleSelection"
           @dblclick.stop.prevent
         >
-          <CheckIcon class="h-4 w-4" />
+          <span
+            :class="[
+              selectionButtonBaseClass,
+              selectionButtonStateClass(selected),
+              'flex h-5 w-5 items-center justify-center rounded-md',
+            ]"
+          >
+            <CheckIcon class="h-4 w-4" />
+          </span>
         </button>
       </div>
       <div :title="item.name" class="min-w-0 overflow-hidden text-sm">
@@ -429,7 +452,8 @@ if (isTouchDevice.value) {
         </template>
       </div>
       <div class="text-sm">
-        {{ item.kind === 'directory' ? '&mdash;' : formatBytes(item.size) }}
+        <FolderSizeLabel v-if="showFolderSize" :entry="folderSizeEntry" />
+        <template v-else>{{ item.kind === 'directory' ? '&mdash;' : formatBytes(item.size) }}</template>
       </div>
       <div class="text-sm">
         {{ getKindLabel(item) }}
