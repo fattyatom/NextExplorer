@@ -27,7 +27,18 @@ jobs:
       - name: Bundle the frontend
         run: npm run build
 
-      - name: Load every backend module
+      # The image copies the built frontend to backend/src/public, and
+      # configureStaticFiles registers the SPA fallback route only when that
+      # directory exists. A plain checkout has no src/public, so that route was
+      # never registered here and a pattern Express rejects reached a container
+      # with this job green. Stage it the way the Dockerfile does.
+      - name: Stage the frontend where the image puts it
+        run: |
+          mkdir -p backend/src/public
+          cp -r frontend/dist/. backend/src/public/
+          test -f backend/src/public/index.html
+
+      - name: Build the app the way the server does
         env:
           CONFIG_DIR: ${{ runner.temp }}/config
           CACHE_DIR: ${{ runner.temp }}/cache
@@ -35,6 +46,14 @@ jobs:
         run: |
           mkdir -p "$CONFIG_DIR" "$CACHE_DIR" "$VOLUME_ROOT"
           # Requiring app.js pulls in every route, service and middleware, so a
-          # missing file fails here rather than on someone's machine. The delay
-          # lets the deferred work (migrations, session store) report too.
-          node -e "require('./backend/src/app.js'); setTimeout(() => process.exit(0), 5000)"
+          # missing file fails here rather than on someone's machine. Requiring
+          # it is not enough on its own, though: routes are registered inside
+          # createApp(), so an invalid route pattern only throws when it is
+          # called. server.js calls it, and so does this. The delay lets the
+          # deferred work (migrations, session store) report too.
+          node -e "
+            const { createApp } = require('./backend/src/app.js');
+            Promise.resolve(createApp())
+              .then(() => setTimeout(() => process.exit(0), 5000))
+              .catch((err) => { console.error(err); process.exit(1); });
+          "
