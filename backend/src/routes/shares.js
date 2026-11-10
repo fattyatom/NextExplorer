@@ -32,6 +32,7 @@ const { extensions, mimeTypes } = require('../config/index');
 const { getSettings, getUserSettings } = require('../services/settingsService');
 const { listDirectoryItems } = require('../services/directoryListingService');
 const { encodeContentDisposition } = require('./files/utils');
+const { assertZipWithinLimit } = require('../services/zipDownloadLimit');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -249,6 +250,9 @@ const streamResolvedDirectoryZip = async ({ absolutePath, archiveName, res }) =>
   const filename = safeArchiveName.toLowerCase().endsWith('.zip')
     ? safeArchiveName
     : `${safeArchiveName}.zip`;
+
+  // Before any header goes out, so the refusal is a normal JSON error.
+  await assertZipWithinLimit([absolutePath]);
 
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', encodeContentDisposition(filename, 'attachment'));
