@@ -410,6 +410,49 @@ describe('Shares Routes', () => {
       expect(directAfterPassword.text).toBe('protected direct link');
     });
 
+    it('refuses a direct directory link whose zip would exceed MAX_DOWNLOAD_ZIP_SIZE', async () => {
+      const usersService = envContext.requireFresh('src/services/users');
+      const userVolumesService = envContext.requireFresh('src/services/userVolumesService');
+
+      const assignedRoot = path.join(envContext.tmpRoot, 'assigned-volume-direct-too-big');
+      await fs.mkdir(path.join(assignedRoot, 'folder'), { recursive: true });
+      await fs.writeFile(path.join(assignedRoot, 'folder', 'big.txt'), 'x'.repeat(64));
+
+      const user = await usersService.createLocalUser({
+        email: 'direct-too-big@example.com',
+        username: 'direct-too-big',
+        displayName: 'Direct Too Big',
+        password: 'secret123',
+        roles: ['user'],
+      });
+      await userVolumesService.addVolumeToUser({
+        userId: user.id,
+        label: 'DirectTooBigVol',
+        volumePath: assignedRoot,
+        accessMode: 'readwrite',
+      });
+      const create = await request(buildApp({ user })).post('/api/shares').send({
+        sourcePath: 'DirectTooBigVol/folder',
+        accessMode: 'readonly',
+        sharingType: 'anyone',
+      });
+      expect(create.status).toBe(201);
+
+      const prev = process.env.MAX_DOWNLOAD_ZIP_SIZE;
+      process.env.MAX_DOWNLOAD_ZIP_SIZE = '32';
+      try {
+        const direct = await request(buildApp()).get(`/api/share/${create.body.shareToken}/file`);
+        expect(direct.status).toBe(413);
+        expect(direct.headers['content-type']).toContain('application/json');
+        expect(direct.body.error.message).toMatch(/limit for zip downloads/);
+      } finally {
+        if (prev === undefined) delete process.env.MAX_DOWNLOAD_ZIP_SIZE;
+        else process.env.MAX_DOWNLOAD_ZIP_SIZE = prev;
+        clearModuleCache('src/config/env');
+        clearModuleCache('src/config/index');
+      }
+    });
+
     it('should stream direct directory links as ZIP downloads', async () => {
       const usersService = envContext.requireFresh('src/services/users');
       const userVolumesService = envContext.requireFresh('src/services/userVolumesService');

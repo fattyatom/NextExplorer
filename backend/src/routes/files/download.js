@@ -11,6 +11,7 @@ const { ValidationError, ForbiddenError } = require('../../errors/AppError');
 const preparedDownloads = require('../../services/preparedDownloads');
 const logger = require('../../utils/logger');
 const { collectInputPaths, stripBasePath, toPosix } = require('./utils');
+const { assertZipWithinLimit } = require('../../services/zipDownloadLimit');
 
 const router = require('express').Router();
 
@@ -100,6 +101,10 @@ const handleDownloadRequest = async (paths, req, res, basePath = '') => {
   }
 
   // ── Archive (multi-file / directory) ───────────────────────────────
+  // Refuse before anything is written: the zip is built in full on the temp
+  // disk before it is served.
+  await assertZipWithinLimit(targets.map(({ absolutePath }) => absolutePath));
+
   const archiveName = (() => {
     if (targets.length === 1) {
       const baseName = getDownloadBaseName(targets[0]);

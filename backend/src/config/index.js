@@ -376,6 +376,12 @@ const archives = (() => {
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 32 * 1024 * 1024 * 1024;
     })(),
     maxEntries: env.MAX_ARCHIVE_ENTRIES,
+    // Cap on the total size of the files in one zip DOWNLOAD (folder or
+    // multi-file download, direct share link). Default 20G; "0" turns it off.
+    maxDownloadZipBytes: (() => {
+      const parsed = parseByteSize(env.MAX_DOWNLOAD_ZIP_SIZE);
+      return Number.isFinite(parsed) ? parsed : 20 * 1024 * 1024 * 1024;
+    })(),
   };
   if (!raw) return { extensions: DEFAULT_ARCHIVE_EXTENSIONS, ...limits };
   // 'zip,iso' replaces the default list; '+udf,squashfs' extends it.

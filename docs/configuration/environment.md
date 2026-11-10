@@ -76,6 +76,12 @@ nextExplorer is configured almost entirely through environment variables. The ba
 
 The sharing system (toolbar **Share** button, guest links such as `/share/:token`, and the **Shared with me** page) works out of the box with the feature flags above. Advanced share tuning knobs are documented under **Sharing (advanced)** below.
 
+## Downloads
+
+| Variable                | Default | Description |
+| ----------------------- | ------- | ----------- |
+| `MAX_DOWNLOAD_ZIP_SIZE` | `20G`   | Largest total size of the files in one zip download (a folder or several selected files, and direct share links to a folder). Larger requests are refused with `413` before anything is zipped, because the zip is built in full in the temp directory first. Accepts `K`/`M`/`G`/`T` suffixes (base 1024); `0` turns the cap off. Single-file downloads are not zipped and not capped. |
+
 ## Editor
 
 | Variable              | Default | Description                                                                                                                                                                                                                                                                                                        |
