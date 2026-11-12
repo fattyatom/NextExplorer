@@ -3,13 +3,12 @@ import { ref, computed } from 'vue';
 import {
   getPreviewUrl,
   normalizePath,
+  downloadItems,
   fetchFileContent,
   fetchMediaTracks,
   getSubtitleUrl,
 } from '@/api';
 import { useFileStore } from '@/stores/fileStore';
-import { useTransferStore } from '@/stores/transferStore';
-import { download } from '@/utils/chunkedDownload';
 import router from '@/router';
 
 export const usePreviewManager = defineStore('preview-manager', () => {
@@ -61,22 +60,16 @@ export const usePreviewManager = defineStore('preview-manager', () => {
       const path = getFullPath(targetItem);
       if (!path) return;
 
-      const transferStore = useTransferStore();
-      const size = item.size || 0;
-      const filename = item.name || 'download';
-      const id = transferStore.add('download', filename, size);
+      const response = await downloadItems([path]);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
 
-      try {
-        const t = transferStore.transfers.get(id);
-        const onProgress = (dl, total) => transferStore.updateProgress(id, dl, total);
-        const signal = t?.abortController?.signal;
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = targetItem.name || 'download';
+      link.click();
 
-        await download({ path, filename, size, onProgress, signal });
-        transferStore.complete(id);
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        transferStore.fail(id, err.message || 'Download failed');
-      }
+      URL.revokeObjectURL(url);
     },
     close: () => close(),
   });
@@ -153,6 +146,32 @@ export const usePreviewManager = defineStore('preview-manager', () => {
     return true;
   };
 
+  /**
+   * The page is going away, and there is no time left to ask for anything.
+   *
+   * A tab being closed gives a handler one synchronous moment: a promise
+   * chained after a request will not run, and a second request that waited for
+   * the first would never be sent. So the close hook is told that this is what
+   * is happening, and a plugin that has something to tell the server sends it
+   * in one breath — see the ONLYOFFICE plugin, which ends its editing session
+   * with a single beacon rather than the two calls it makes when there is time.
+   *
+   * Nothing here touches the state: whatever this store holds is about to stop
+   * existing anyway, and clearing it would only risk cancelling the very
+   * request being sent.
+   */
+  const endForUnload = () => {
+    const plugin = activePlugin.value;
+    const item = activeItem.value;
+    if (!plugin || !item) return false;
+    try {
+      plugin.onBeforeClose?.(item, { unloading: true });
+    } catch (error) {
+      console.warn(`Plugin ${plugin.id} onBeforeClose error while unloading:`, error);
+    }
+    return true;
+  };
+
   const close = () => {
     if (pendingClose) return pendingClose;
     if (!activePlugin.value || !activeItem.value) return;
@@ -160,7 +179,7 @@ export const usePreviewManager = defineStore('preview-manager', () => {
     const plugin = activePlugin.value;
     const item = activeItem.value;
 
-    pendingClose = Promise.resolve(plugin.onBeforeClose?.(item))
+    pendingClose = Promise.resolve(plugin.onBeforeClose?.(item, { unloading: false }))
       .catch((error) => {
         // A preview must always remain closable. Plugins can use this hook for
         // best-effort cleanup such as asking ONLYOFFICE to flush changes.
@@ -199,6 +218,7 @@ export const usePreviewManager = defineStore('preview-manager', () => {
     unregister,
     open,
     close,
+    endForUnload,
     findPlugin,
   };
 });

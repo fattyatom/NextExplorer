@@ -1,12 +1,87 @@
-import { requestJson, normalizePath, encodePath, buildUrl } from './http';
+import {
+  requestJson,
+  requestRaw,
+  requestStream,
+  normalizePath,
+  encodePath,
+  buildUrl,
+} from './http';
 
 const DELETE_BATCH_SIZE = 100;
 
-async function browse(path = '') {
+/**
+ * Items per streamed deletion request.
+ *
+ * The streaming endpoint used to receive the whole selection at once, and a
+ * few thousand paths is more JSON than a server accepts by default: the
+ * request came back as "request entity too large" before anything read it.
+ * The batches are large enough that the progress bar still moves smoothly,
+ * and small enough that no single request depends on a generous body limit.
+ */
+const DELETE_STREAM_BATCH_SIZE = 500;
+
+/**
+ * Items per streamed copy or move request. Same reason as the deletion batch:
+ * the whole selection in one body is refused as too large.
+ */
+const TRANSFER_BATCH_SIZE = 500;
+
+/**
+ * Fold the per-batch results back into the single response the caller expects:
+ * the transferred entries, and the destination the server settled on (it may
+ * rename to avoid a collision).
+ */
+/**
+ * Fold impact responses into the single summary the dialog reads. Shares are
+ * deduplicated: a folder and a file inside it can report the same one.
+ */
+const summarizeDeleteImpact = (responses) => {
+  const sharesById = new Map();
+  let trash = null;
+  for (const response of responses) {
+    for (const share of Array.isArray(response?.shares) ? response.shares : []) {
+      if (share?.id) sharesById.set(share.id, share);
+    }
+    // Every batch answers from the same settings; the items are what add up.
+    if (response?.trash) {
+      trash = {
+        enabled: Boolean(response.trash.enabled),
+        retentionDays: response.trash.retentionDays ?? null,
+        items: [
+          ...(trash?.items || []),
+          ...(Array.isArray(response.trash.items) ? response.trash.items : []),
+        ],
+      };
+    }
+  }
+  const shares = Array.from(sharesById.values());
+  return { shareCount: shares.length, shares, trash };
+};
+
+/** Only sent when asked for, so a request without it means what it always meant. */
+const permanentFlag = (options = {}) => (options.permanent === true ? { permanent: true } : {});
+
+const mergeTransferResults = (results) => {
+  if (!Array.isArray(results)) return results;
+  const merged = { success: true, items: [] };
+  for (const result of results) {
+    if (Array.isArray(result?.items)) merged.items.push(...result.items);
+    if (result?.destination != null) merged.destination = result.destination;
+  }
+  return merged;
+};
+
+async function browse(path = '', options = {}) {
   const normalizedPath = normalizePath(path);
   const encodedPath = encodePath(normalizedPath);
   const endpoint = encodedPath ? `/api/browse/${encodedPath}` : '/api/browse/';
-  return requestJson(endpoint, { method: 'GET' });
+  return requestJson(endpoint, {
+    method: 'GET',
+    signal: options.signal,
+    // A directory listing contains short-lived state (including OnlyOffice
+    // activity), so a browser or intermediary cache must never reuse it.
+    cache: 'no-store',
+  });
 }
 
 async function getVolumes() {
@@ -19,36 +94,168 @@ async function getUsage(path = '') {
   return requestJson(`/api/usage/${encodedPath}`, { method: 'GET' });
 }
 
-async function copyItems(items, destination) {
-  return requestJson('/api/files/copy', {
+async function getFolderSizesBatch(paths = [], options = {}) {
+  const normalizedPaths = (Array.isArray(paths) ? paths : [])
+    .map((p) => normalizePath(p))
+    .filter(Boolean);
+  return requestJson('/api/folder-size/batch', {
+    ...options,
     method: 'POST',
-    body: JSON.stringify({ items, destination }),
+    body: JSON.stringify({ paths: normalizedPaths }),
   });
 }
 
-async function moveItems(items, destination) {
-  return requestJson('/api/files/move', {
-    method: 'POST',
-    body: JSON.stringify({ items, destination }),
-  });
+async function refreshFolderSize(relativePath, options = {}) {
+  const normalizedPath = normalizePath(relativePath);
+  if (!normalizedPath) {
+    throw new Error('A folder path is required to refresh its size.');
+  }
+  const encodedPath = encodePath(normalizedPath);
+  return requestJson(`/api/folder-size/refresh/${encodedPath}`, { ...options, method: 'POST' });
 }
 
-async function deleteItems(items) {
+/**
+ * Run one streamed operation over a large selection, a batch at a time.
+ *
+ * A single request carrying thousands of paths is refused as too large, but
+ * the caller still drives one progress bar: the events of each batch are
+ * rebased onto the whole selection, so the bar never restarts and never goes
+ * backwards at a boundary. Percentages are computed from item counts, which
+ * are known upfront — byte totals are not, since each batch only learns its
+ * own when the server prepares it.
+ */
+async function streamInBatches(items, batchSize, runBatch, onEvent) {
+  const all = Array.isArray(items) ? items : [];
+  const emit = typeof onEvent === 'function' ? onEvent : null;
+
+  if (all.length <= batchSize) return runBatch(all, emit);
+
+  const batches = [];
+  for (let index = 0; index < all.length; index += batchSize) {
+    batches.push(all.slice(index, index + batchSize));
+  }
+
+  const results = new Array(batches.length);
+  // Each batch counts from zero, so the global count is advanced by each
+  // batch's own delta rather than replaced by its number. Taking the raw one
+  // would make the bar fall back to the start at every boundary.
+  const seenPerBatch = new Array(batches.length).fill(0);
+  let completed = 0;
+  let knownBytes = 0;
+  let bytesPerBatch = new Array(batches.length).fill(0);
+  let startEmitted = false;
+
+  const runOne = async (batchIndex) => {
+    results[batchIndex] = await runBatch(batches[batchIndex], (event) => {
+      if (!emit) return;
+      if (event.type === 'start') {
+        knownBytes += Number(event.totalBytes) || 0;
+        // One start for the whole run, whichever batch opens first.
+        if (!startEmitted) {
+          startEmitted = true;
+          emit({ ...event, totalItems: all.length, totalBytes: knownBytes });
+        }
+        return;
+      }
+      if (event.type === 'progress') {
+        const seen = Number(event.completedItems) || 0;
+        completed += Math.max(0, seen - seenPerBatch[batchIndex]);
+        seenPerBatch[batchIndex] = seen;
+
+        const bytes = Number(event.copiedBytes) || 0;
+        bytesPerBatch[batchIndex] = bytes;
+        const copiedBytes = bytesPerBatch.reduce((sum, value) => sum + value, 0);
+
+        emit({
+          ...event,
+          completedItems: completed,
+          ...(copiedBytes ? { copiedBytes } : {}),
+          ...(knownBytes ? { totalBytes: knownBytes } : {}),
+          percent: Math.round((completed / all.length) * 100),
+        });
+        return;
+      }
+      emit(event);
+    });
+  };
+
+  // One batch at a time, and this is a constraint rather than an oversight.
+  //
+  // Sending two would be faster on storage where each operation is mostly
+  // latency, and this used to carry a worker pool for exactly that — with a
+  // `concurrency` argument no caller ever passed, so it never ran more than one
+  // and the machinery around it was unreachable.
+  //
+  // It cannot simply be switched on. The server resolves a name collision with
+  // `findAvailableName`, which checks whether a name is free and then uses it;
+  // that is only safe because a transfer walks its items strictly one at a time.
+  // Two batches in flight copying `a/report.txt` and `b/report.txt` into the
+  // same folder would both find `report.txt` free, and one would overwrite the
+  // other with nothing said. Making the destination side race-safe comes first.
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    await runOne(batchIndex);
+  }
+
+  return results;
+}
+
+async function copyItems(items, destination, options = {}) {
+  const results = await streamInBatches(
+    items,
+    TRANSFER_BATCH_SIZE,
+    (batch, onEvent) =>
+      requestStream('/api/files/copy', {
+        method: 'POST',
+        body: JSON.stringify({ items: batch, destination }),
+        onEvent,
+        signal: options.signal,
+      }),
+    options.onEvent
+  );
+  return mergeTransferResults(results);
+}
+
+/**
+ * Folders this user has recently moved or copied things into, most recent
+ * first. The server only returns the ones still reachable, so the picker can
+ * offer them without checking each in turn.
+ */
+async function fetchRecentDestinations() {
+  const payload = await requestJson('/api/files/recent-destinations');
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
+async function moveItems(items, destination, options = {}) {
+  const results = await streamInBatches(
+    items,
+    TRANSFER_BATCH_SIZE,
+    (batch, onEvent) =>
+      requestStream('/api/files/move', {
+        method: 'POST',
+        body: JSON.stringify({ items: batch, destination }),
+        onEvent,
+        signal: options.signal,
+      }),
+    options.onEvent
+  );
+  return mergeTransferResults(results);
+}
+
+async function deleteItems(items, options = {}) {
   const normalizedItems = Array.isArray(items) ? items : [];
   if (normalizedItems.length <= DELETE_BATCH_SIZE) {
     return requestJson('/api/files', {
       method: 'DELETE',
-      body: JSON.stringify({ items: normalizedItems }),
+      body: JSON.stringify({ items: normalizedItems, ...permanentFlag(options) }),
     });
   }
 
   const deletedItems = [];
   for (let index = 0; index < normalizedItems.length; index += DELETE_BATCH_SIZE) {
     const batch = normalizedItems.slice(index, index + DELETE_BATCH_SIZE);
-    // eslint-disable-next-line no-await-in-loop
     const response = await requestJson('/api/files', {
       method: 'DELETE',
-      body: JSON.stringify({ items: batch }),
+      body: JSON.stringify({ items: batch, ...permanentFlag(options) }),
     });
     deletedItems.push(...(Array.isArray(response?.items) ? response.items : []));
   }
@@ -56,34 +263,56 @@ async function deleteItems(items) {
   return { success: true, items: deletedItems };
 }
 
+async function deleteItemsStream(items, options = {}) {
+  const results = await streamInBatches(
+    items,
+    DELETE_STREAM_BATCH_SIZE,
+    (batch, onEvent) =>
+      requestStream('/api/files/delete-stream', {
+        method: 'POST',
+        body: JSON.stringify({ items: batch, ...permanentFlag(options) }),
+        onEvent,
+        signal: options.signal,
+      }),
+    options.onEvent
+  );
+
+  if (!Array.isArray(results)) return results;
+  return {
+    success: true,
+    items: results.flatMap((result) => (Array.isArray(result?.items) ? result.items : [])),
+  };
+}
+
 async function getDeleteImpact(items) {
   const normalizedItems = Array.isArray(items) ? items : [];
-  if (normalizedItems.length <= DELETE_BATCH_SIZE) {
-    return requestJson('/api/files/delete-impact', {
-      method: 'POST',
-      body: JSON.stringify({ items: normalizedItems }),
-    });
+  if (normalizedItems.length <= DELETE_STREAM_BATCH_SIZE) {
+    return summarizeDeleteImpact([
+      await requestJson('/api/files/delete-impact', {
+        method: 'POST',
+        body: JSON.stringify({ items: normalizedItems }),
+      }),
+    ]);
   }
 
-  const sharesById = new Map();
-  for (let index = 0; index < normalizedItems.length; index += DELETE_BATCH_SIZE) {
-    const batch = normalizedItems.slice(index, index + DELETE_BATCH_SIZE);
-    // eslint-disable-next-line no-await-in-loop
-    const response = await requestJson('/api/files/delete-impact', {
-      method: 'POST',
-      body: JSON.stringify({ items: batch }),
-    });
-    const shares = Array.isArray(response?.shares) ? response.shares : [];
-    shares.forEach((share) => {
-      if (share?.id) sharesById.set(share.id, share);
-    });
+  // Read-only and independent, so the batches go out together: this runs
+  // before the confirmation dialog can even be shown, and a serialized chain
+  // of them is latency the user waits through for nothing.
+  const batches = [];
+  for (let index = 0; index < normalizedItems.length; index += DELETE_STREAM_BATCH_SIZE) {
+    batches.push(normalizedItems.slice(index, index + DELETE_STREAM_BATCH_SIZE));
   }
 
-  const shares = Array.from(sharesById.values());
-  return {
-    shareCount: shares.length,
-    shares,
-  };
+  const responses = await Promise.all(
+    batches.map((batch) =>
+      requestJson('/api/files/delete-impact', {
+        method: 'POST',
+        body: JSON.stringify({ items: batch }),
+      })
+    )
+  );
+
+  return summarizeDeleteImpact(responses);
 }
 
 async function createFolder(destination, name) {
@@ -95,6 +324,54 @@ async function createFolder(destination, name) {
   }
 
   return requestJson('/api/files/folder', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+async function reserveFolderUploadTarget(destination, sourceRoot) {
+  const uploadTo = normalizePath(destination || '');
+  if (!uploadTo || typeof sourceRoot !== 'string' || !sourceRoot.trim()) {
+    throw new Error('A destination and folder name are required to start a folder upload.');
+  }
+
+  return requestJson('/api/upload/folder-session', {
+    method: 'POST',
+    body: JSON.stringify({ uploadTo, sourceRoot }),
+  });
+}
+
+/**
+ * Create a blank Word, Excel or PowerPoint document.
+ *
+ * `format` is the extension the document will carry ('docx', 'xlsx', 'pptx');
+ * the server owns it, so a name that lacks it gains it. Separate from
+ * createFile because an empty file with an office extension is not a document
+ * any editor will open.
+ */
+async function createOfficeDocument(destination, { format, name } = {}) {
+  const normalizedDestination = normalizePath(destination || '');
+  const payload = { path: normalizedDestination, format };
+
+  if (typeof name === 'string' && name.trim()) {
+    payload.name = name.trim();
+  }
+
+  return requestJson('/api/files/office-document', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+async function createFile(destination, name) {
+  const normalizedDestination = normalizePath(destination || '');
+  const payload = { path: normalizedDestination };
+
+  if (typeof name === 'string' && name.trim()) {
+    payload.name = name;
+  }
+
+  return requestJson('/api/files/file', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -112,10 +389,40 @@ async function renameItem(path, name, newName) {
   });
 }
 
+/**
+ * The text of a file, for the editor and the Markdown preview.
+ *
+ * A GET, so the browser keeps the answer: the server marks it to be checked
+ * every time and answers 304 when the file has not changed, which the browser
+ * turns back into the copy it kept. Opening the editor from the preview used
+ * to download the whole file a second time — a POST is never kept.
+ */
 async function fetchFileContent(path) {
-  return requestJson('/api/editor', {
-    method: 'POST',
-    body: JSON.stringify({ path }),
+  return requestJson(`/api/editor?path=${encodeURIComponent(path)}`, { method: 'GET' });
+}
+
+async function fetchSharedFileContent(shareToken, innerPath = '') {
+  const encodedToken = encodeURIComponent(shareToken);
+  const normalizedInnerPath = normalizePath(innerPath);
+  const encodedInnerPath = encodePath(normalizedInnerPath);
+  const endpoint = encodedInnerPath
+    ? `/api/share/${encodedToken}/editor/${encodedInnerPath}`
+    : `/api/share/${encodedToken}/editor`;
+
+  return requestJson(endpoint, { method: 'GET' });
+}
+
+async function saveSharedFileContent(shareToken, innerPath = '', content) {
+  const encodedToken = encodeURIComponent(shareToken);
+  const normalizedInnerPath = normalizePath(innerPath);
+  const encodedInnerPath = encodePath(normalizedInnerPath);
+  const endpoint = encodedInnerPath
+    ? `/api/share/${encodedToken}/editor/${encodedInnerPath}`
+    : `/api/share/${encodedToken}/editor`;
+
+  return requestJson(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
   });
 }
 
@@ -136,13 +443,22 @@ function getRawFileUrl(path) {
   return buildUrl(`/api/raw?${params.toString()}`);
 }
 
-async function fetchThumbnail(relativePath) {
+async function fetchThumbnail(relativePath, options = {}) {
   const normalizedPath = normalizePath(relativePath);
   if (!normalizedPath) {
     throw new Error('A file path is required to fetch a thumbnail.');
   }
   const encodedPath = encodePath(normalizedPath);
-  return requestJson(`/api/thumbnails/${encodedPath}`, { method: 'GET' });
+  const { background = false, ...requestOptions } = options;
+  const suffix = background ? '?background=1' : '';
+  // Thumbnails are best-effort/background: never surface a global error toast on
+  // a missing source. Callers inspect the thrown error's statusCode to decide
+  // whether to retry.
+  return requestJson(`/api/thumbnails/${encodedPath}${suffix}`, {
+    method: 'GET',
+    suppressErrorHandler: true,
+    ...requestOptions,
+  });
 }
 
 async function fetchMetadata(relativePath) {
@@ -154,18 +470,97 @@ async function fetchMetadata(relativePath) {
   return requestJson(`/api/metadata/${encodedPath}`, { method: 'GET' });
 }
 
-async function extractZip(relativePath) {
-  const normalizedPath = normalizePath(relativePath);
-  if (!normalizedPath) {
-    throw new Error('A zip file path is required.');
+async function downloadItems(paths, basePath = '') {
+  const normalizedList = (Array.isArray(paths) ? paths : [paths])
+    .map((item) => normalizePath(item))
+    .filter(Boolean);
+
+  if (normalizedList.length === 0) {
+    throw new Error('At least one path is required for download.');
   }
-  return requestJson('/api/files/zip/extract', {
+
+  const normalizedBase = normalizePath(basePath || '');
+
+  // Use requestRaw as this returns a file blob, not JSON
+  return requestRaw('/api/download', {
     method: 'POST',
-    body: JSON.stringify({ path: normalizedPath }),
+    body: JSON.stringify({
+      items: normalizedList,
+      basePath: normalizedBase,
+    }),
   });
 }
 
-async function compressToZip(items, destination = '', name) {
+/**
+ * The same selection, described instead of sent (#487).
+ *
+ * Answers the names and sizes of the loose files, plus the one archive the
+ * selected folders become, and a token naming those parts. The counting and the
+ * log entry happen here, once, so that fetching the parts adds neither.
+ */
+async function createDownloadPlan(paths, basePath = '') {
+  const normalizedList = (Array.isArray(paths) ? paths : [paths])
+    .map((item) => normalizePath(item))
+    .filter(Boolean);
+
+  if (normalizedList.length === 0) {
+    throw new Error('At least one path is required for download.');
+  }
+
+  return requestJson('/api/download/plan', {
+    method: 'POST',
+    body: JSON.stringify({
+      items: normalizedList,
+      basePath: normalizePath(basePath || ''),
+    }),
+  });
+}
+
+const downloadPartPath = (token, part) =>
+  `/api/download/part/${encodeURIComponent(token)}/${encodeURIComponent(part)}`;
+
+/**
+ * Where one part of a plan is, as an address.
+ *
+ * For the browsers without a folder picker, where each part is taken by an
+ * anchor carrying `download`: a navigation, not a request, so it must be a URL
+ * and it must be a GET. The browser then streams it to disk itself.
+ */
+function downloadPartUrl(token, part) {
+  return buildUrl(downloadPartPath(token, part));
+}
+
+/**
+ * One part of a plan, as a response whose body is still arriving.
+ *
+ * For writing into a folder the reader picked: the bytes are piped from here
+ * into a file handle, so a file larger than memory is never held in the page.
+ */
+function fetchDownloadPart(token, part, options = {}) {
+  return requestRaw(downloadPartPath(token, part), { method: 'GET', ...options });
+}
+
+async function extractZip(relativePath, options = {}) {
+  const normalizedPath = normalizePath(relativePath);
+  if (!normalizedPath) {
+    throw new Error('An archive file path is required.');
+  }
+  // The endpoint streams NDJSON progress events (start/progress/done/error),
+  // like the copy/move endpoints; `onEvent` receives each intermediate event.
+  return requestStream('/api/files/zip/extract', {
+    method: 'POST',
+    body: JSON.stringify({
+      path: normalizedPath,
+      ...(options.destination === 'current' ? { destination: 'current' } : {}),
+      ...(typeof options.password === 'string' ? { password: options.password } : {}),
+    }),
+    onEvent: options.onEvent,
+    signal: options.signal,
+    suppressErrorCodes: options.suppressErrorCodes,
+  });
+}
+
+async function compressToZip(items, destination = '', name, options = {}) {
   const payload = {
     items: Array.isArray(items) ? items : [],
     destination: normalizePath(destination || ''),
@@ -174,13 +569,17 @@ async function compressToZip(items, destination = '', name) {
     payload.name = name.trim();
   }
 
-  return requestJson('/api/files/zip/compress', {
+  // The endpoint streams NDJSON progress events (start/progress/done/error),
+  // like the extract and copy/move endpoints.
+  return requestStream('/api/files/zip/compress', {
     method: 'POST',
     body: JSON.stringify(payload),
+    onEvent: options.onEvent,
+    signal: options.signal,
   });
 }
 
-async function search(path = '', q = '', limit) {
+async function search(path = '', q = '', limit, { signal } = {}) {
   const normalizedPath = normalizePath(path || '');
   const params = new URLSearchParams();
   if (normalizedPath) params.set('path', normalizedPath);
@@ -188,7 +587,9 @@ async function search(path = '', q = '', limit) {
   if (Number.isFinite(limit) && limit > 0) params.set('limit', String(limit));
 
   const endpoint = `/api/search?${params.toString()}`;
-  return requestJson(endpoint, { method: 'GET' });
+  // A search the caller has moved on from is aborted rather than waited out:
+  // a deep one runs for seconds, and nobody is going to read its answer.
+  return requestJson(endpoint, { method: 'GET', signal });
 }
 
 const getPreviewUrl = (relativePath) => {
@@ -199,6 +600,60 @@ const getPreviewUrl = (relativePath) => {
 
   const params = new URLSearchParams({ path: normalizedPath });
   return buildUrl(`/api/preview?${params.toString()}`);
+};
+
+/**
+ * What is inside a media file: its audio, video and subtitle tracks.
+ *
+ * The player does not transcode, so a track it cannot decode simply produces
+ * nothing — a film with an AC-3 soundtrack plays in silence, and until this
+ * existed the interface had no way to say why. Returns null when the server
+ * cannot read the file, which the caller treats as "say nothing" rather than
+ * "there is nothing".
+ */
+async function fetchMediaTracks(relativePath) {
+  const normalizedPath = normalizePath(relativePath);
+  if (!normalizedPath) return null;
+
+  const params = new URLSearchParams({ path: normalizedPath });
+  try {
+    return await requestJson(`/api/media/tracks?${params.toString()}`, {
+      method: 'GET',
+      suppressErrorHandler: true,
+    });
+  } catch (_) {
+    // A file ffprobe will not read is not an error worth showing anyone; the
+    // video still plays, and the extra information is simply unavailable.
+    return null;
+  }
+}
+
+/**
+ * A URL for one subtitle track, converted to WebVTT.
+ *
+ * Handed straight to a `<track>` element rather than fetched, so the browser's
+ * own caption menu drives it. That works because the API is served from the
+ * same origin as the application; a `<track>` pointing somewhere else would
+ * need CORS and would not carry the session cookie.
+ *
+ * @param {string} relativePath the media file
+ * @param {{stream?: number, file?: string}} track as named by fetchMediaTracks:
+ *   a stream index for an embedded track, a filename for a sidecar
+ */
+const getSubtitleUrl = (relativePath, track = {}) => {
+  const normalizedPath = normalizePath(relativePath);
+  if (!normalizedPath) return null;
+
+  const params = new URLSearchParams({ path: normalizedPath });
+  if (typeof track.file === 'string' && track.file) {
+    params.set('file', track.file);
+  } else if (Number.isInteger(track.stream)) {
+    params.set('stream', String(track.stream));
+  } else {
+    return null;
+  }
+
+  return buildUrl(`/api/media/subtitle?${params.toString()}`);
 };
 
 async function fetchPermissions(relativePath) {
@@ -238,21 +693,36 @@ export {
   browse,
   getVolumes,
   getUsage,
+  getFolderSizesBatch,
+  refreshFolderSize,
   copyItems,
   moveItems,
+  fetchRecentDestinations,
   deleteItems,
+  deleteItemsStream,
   getDeleteImpact,
   createFolder,
+  reserveFolderUploadTarget,
+  createFile,
+  createOfficeDocument,
   renameItem,
   fetchFileContent,
+  fetchSharedFileContent,
+  saveSharedFileContent,
   saveFileContent,
   getRawFileUrl,
   fetchThumbnail,
   fetchMetadata,
+  downloadItems,
+  createDownloadPlan,
+  downloadPartUrl,
+  fetchDownloadPart,
   extractZip,
   compressToZip,
   search,
   getPreviewUrl,
+  fetchMediaTracks,
+  getSubtitleUrl,
   fetchPermissions,
   changePermissions,
   changeOwnership,

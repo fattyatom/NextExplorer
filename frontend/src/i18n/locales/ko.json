@@ -1,10 +1,10 @@
 {
   "common": {
-    "or": "OR",
-    "in": "in",
-    "to": "to",
+    "or": "또는",
+    "in": "위치:",
+    "to": "대상:",
     "all": "전체",
-    "and": "and",
+    "and": "및",
     "cancel": "취소",
     "close": "닫기",
     "open": "열기",
@@ -69,7 +69,15 @@
     "shares": "공유",
     "unsavedChanges": "저장되지 않은 변경 사항이 있습니다",
     "readonly": "읽기 전용",
-    "readwrite": "읽기/쓰기"
+    "readwrite": "읽기/쓰기",
+    "add": "추가",
+    "back": "뒤로 가기",
+    "logoAlt": "{name} 로고",
+    "toggleSection": "섹션 펼치기/접기",
+    "dismissWarning": "경고 닫기",
+    "reset": "초기화",
+    "moveUp": "위로 이동",
+    "moveDown": "아래로 이동"
   },
   "editor": {
     "editing": "편집 중",
@@ -77,13 +85,17 @@
     "theme": "테마",
     "editorSettings": "에디터 설정",
     "wrapLines": "자동 줄 바꿈",
-    "confirmCloseWithoutSaving": "저장되지 않은 변경 사항이 있습니다. 저장하지 않고 종료 하시겠습니까?"
+    "confirmCloseWithoutSaving": "저장되지 않은 변경 사항이 있습니다. 저장하지 않고 종료 하시겠습니까?",
+    "trashReadOnly": "휴지통 · 읽기 전용",
+    "versionReadOnly": "이전 버전, 읽기 전용",
+    "highlightingOffTooLarge": "이 파일은 구문 강조가 꺼져 있습니다. 일부가 너무 커서 페이지를 멈추지 않고는 강조할 수 없습니다.",
+    "raw": "원본",
+    "selectTheme": "편집기 테마 선택"
   },
   "status": {
     "updated": "업데이트 성공",
     "failed": "실패",
-    "passwordUpdated": "비밀번호 업데이트 완료",
-    "completePercent": "{percent}% 완료"
+    "passwordUpdated": "비밀번호 업데이트 완료"
   },
   "actions": {
     "newFolder": "새 폴더",
@@ -96,13 +108,25 @@
     "rename": "이름 바꾸기",
     "download": "다운로드",
     "downloadFolder": "폴더 다운로드",
-    "extractZip": "ZIP 파일 추출",
     "compressToZip": "ZIP 파일로 압축",
     "search": "검색",
     "sortBy": "정렬 기준",
     "addRule": "규칙 추가",
     "clearAll": "전부 지우기",
-    "cancelAll": "전부 취소"
+    "cancelAll": "전부 취소",
+    "newWordDocument": "새 Word 문서",
+    "newSpreadsheet": "새 Excel 통합 문서",
+    "newPresentation": "새 PowerPoint 프레젠테이션",
+    "newTextFile": "새 텍스트 파일",
+    "newMarkdownFile": "새 Markdown 파일",
+    "newCsvFile": "새 CSV 파일",
+    "extractArchive": "압축 풀기",
+    "extractArchiveIntoCurrentFolder": "현재 폴더에 압축 풀기",
+    "copyPath": "경로 복사",
+    "copyName": "이름 복사",
+    "share": "공유",
+    "copied": "복사됨",
+    "newPdf": "새 PDF 문서"
   },
   "placeholders": {
     "email": "user{'@'}example.com",
@@ -113,7 +137,9 @@
     "label": "내 공유 파일",
     "path": "예시: 사진/여행",
     "search": "파일 또는 폴더를 검색하세요…",
-    "volumeLabel": "예시: 문서, 프로젝트, 영상"
+    "volumeLabel": "예시: 문서, 프로젝트, 영상",
+    "totpCode": "123456",
+    "emailOrUsername": "name{'@'}company.com 또는 name"
   },
   "loading": {
     "default": "로딩 중…",
@@ -153,12 +179,19 @@
     "labelRequired": "레이블이 필요합니다",
     "pathRequired": "경로가 필요합니다",
     "saveVolume": "볼륨 저장 실패",
-    "removeVolume": "볼륨 제거 실패"
+    "removeVolume": "볼륨 제거 실패",
+    "totpCodeRequired": "코드를 입력하세요.",
+    "identifierRequired": "이메일 주소 또는 사용자 이름이 필요합니다",
+    "unlockUser": "계정 잠금을 해제할 수 없습니다",
+    "oidcNotConfigured": "이 서버에는 SSO(Single Sign-On)가 구성되어 있지 않습니다.",
+    "oidcProviderUnavailable": "SSO(Single Sign-On)를 시작할 수 없습니다. 설정은 갖춰져 있으며, 서버 로그에 원인이 기록되어 있습니다.",
+    "totpCodeWrong": "코드가 올바르지 않습니다."
   },
   "serverErrors": {
     "AUTH_REQUIRED": "인증이 필요합니다",
-    "AUTH_INVALID_CREDENTIALS": "이메일 혹은 비밀번호가 일치하지 않습니다",
+    "AUTH_INVALID_CREDENTIALS": "잘못된 자격 증명",
     "AUTH_ACCOUNT_LOCKED": "로그인 실패로 인해 계정이 일시 잠금 처리되었습니다",
+    "AUTH_ACCOUNT_LOCKED_RETRY": "로그인 실패가 너무 많아 계정이 잠겼습니다. {minutes}분 후 다시 시도해주세요 | 로그인 실패가 너무 많아 계정이 잠겼습니다. {minutes}분 후 다시 시도해주세요",
     "AUTH_PASSWORD_INCORRECT": "현재 비밀번호가 일치하지 않습니다",
     "VALIDATION_EMAIL_REQUIRED": "이메일 주소가 필요합니다",
     "VALIDATION_PASSWORD_REQUIRED": "비밀번호가 필요합니다",
@@ -169,7 +202,12 @@
     "NOT_FOUND_USER": "유저를 찾을 수 없습니다",
     "CONFLICT_USER_EXISTS": "유저가 이미 존재합니다",
     "CONFLICT_PASSWORD_EXISTS": "이미 비밀번호 인증이 존재합니다",
-    "CONFLICT_SETUP_COMPLETE": "애플리케이션이 이미 설정되었습니다"
+    "CONFLICT_SETUP_COMPLETE": "애플리케이션이 이미 설정되었습니다",
+    "FORBIDDEN": "접근이 거부되었습니다",
+    "NOT_FOUND": "찾을 수 없음",
+    "CONFLICT": "충돌",
+    "RATE_LIMIT_EXCEEDED": "요청이 너무 많습니다",
+    "AUTH_INVALID_TOTP_CODE": "코드가 올바르지 않습니다."
   },
   "titles": {
     "volumes": "볼륨",
@@ -190,7 +228,8 @@
     "locations": "위치"
   },
   "i18n": {
-    "language": "언어"
+    "language": "언어",
+    "followBrowser": "브라우저 설정 따르기"
   },
   "search": {
     "openShortcutTitle": "검색창 열기 (⌘/Ctrl + K)",
@@ -198,7 +237,14 @@
     "searching": "검색 중…",
     "noMatches": "검색 결과 없음",
     "openFolder": "폴더 열기",
-    "line": "라인"
+    "line": "라인",
+    "matchedByName": "이름",
+    "matchedByContent": "내용",
+    "matchedByBoth": "이름과 내용",
+    "stoppedEarly": "제한 시간에 도달해 중단되었습니다 — 지금까지 찾은 결과입니다.",
+    "firstOnly": "처음 {count}개의 결과입니다. 더 보려면 검색을 좁히세요.",
+    "tooShort": "{count}자 이상 입력하세요.",
+    "showMore": "더 보기"
   },
   "user": {
     "account": "계정",
@@ -211,7 +257,14 @@
     "darkTheme": "다크 테마"
   },
   "create": {
-    "createNew": "추가"
+    "createNew": "추가",
+    "documentName": "문서 이름",
+    "createAndOpen": "만들고 열기",
+    "defaultDocumentName": "문서",
+    "defaultSpreadsheetName": "통합 문서",
+    "defaultPresentationName": "프레젠테이션",
+    "defaultDataName": "데이터",
+    "documentFailed": "문서를 만들 수 없습니다"
   },
   "context": {
     "getInfo": "속성",
@@ -227,8 +280,33 @@
     "deleteMessage": {
       "single": "정말 \"{name}\"을(를) 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
       "multiple": "정말 선택한 {count}개 항목을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
-      "generic": "선택된 항목이 없습니다."
-    }
+      "generic": "선택된 항목이 없습니다.",
+      "trashSingle": "\"{name}\"은(는) 휴지통으로 이동하며 {count}일 동안 보관됩니다.",
+      "trashMultiple": "이 항목 {items}개는 휴지통으로 이동하며 {count}일 동안 보관됩니다."
+    },
+    "checkingDeleteImpact": "연결된 공유 확인 중...",
+    "deleteImpactUnavailable": "연결된 공유를 확인할 수 없습니다. 삭제는 서버에서 계속 적용됩니다.",
+    "deleteLinkedShares": "이 콘텐츠에는 함께 삭제될 연결된 공유 {count}개가 있습니다. | 이 콘텐츠에는 함께 삭제될 연결된 공유 {count}개가 있습니다.",
+    "moveToTrash": "휴지통으로 이동",
+    "deletePermanently": "영구 삭제",
+    "deleteSomePermanent": "그중 {count}개는 휴지통으로 이동할 수 없어 영구 삭제됩니다.",
+    "trashReasons": {
+      "otherDevice": "볼륨의 휴지통과 다른 디스크에 있습니다.",
+      "tooLarge": "볼륨의 휴지통 전체보다 큽니다.",
+      "zoneRoot": "볼륨 전체는 자신의 휴지통으로 이동할 수 없습니다.",
+      "zoneUnwritable": "볼륨의 휴지통에 쓸 수 없습니다.",
+      "noZone": "휴지통이 있는 위치에 있지 않습니다.",
+      "disabled": "휴지통이 꺼져 있습니다."
+    },
+    "keptTitle": "휴지통으로 이동할 수 없음",
+    "keptMessage": "항목 {count}개를 원래 위치에 그대로 두었습니다. 영구 삭제하시겠습니까?",
+    "keptReasons": {
+      "tooLarge": "{size}로, 볼륨의 휴지통이 담을 수 있는 {budget}보다 큽니다."
+    },
+    "deleteLinkedSharesTrash": "이 콘텐츠에는 공유 링크 {count}개가 있습니다. 콘텐츠가 휴지통에 있는 동안에는 작동하지 않으며, 복원할 때 되살릴 수 있습니다.",
+    "deleteLinkedSharesPermanent": "이 콘텐츠에는 공유 링크 {count}개가 있으며, 함께 영구적으로 삭제됩니다.",
+    "deleteOnlyofficeOpen": "{names} 파일이(가) OnlyOffice에서 열려 있습니다. 삭제는 계속할 수 있지만 저장되지 않은 변경 사항은 사라질 수 있습니다. | {names} 파일이(가) OnlyOffice에서 열려 있습니다. 삭제는 계속할 수 있지만 저장되지 않은 변경 사항은 사라질 수 있습니다.",
+    "deleteVersionsNotice": "이전 버전 {count}개도 함께 삭제됩니다({size}). 사본은 어디에도 남지 않습니다."
   },
   "folder": {
     "kind": "종류",
@@ -236,11 +314,21 @@
     "noPhotos": "폴더에 사진이 없습니다",
     "noPhotosHint": "파일을 보려면 다른 보기 모드로 전환하세요.",
     "empty": "폴더가 비었습니다",
-    "emptyHint": "파일을 업로드하거나 새 파일을 만들어주세요."
+    "emptyHint": "파일을 업로드하거나 새 파일을 만들어주세요.",
+    "scrollTop": "맨 위",
+    "scrollBottom": "맨 아래",
+    "selectAll": "전체 선택",
+    "deselectAll": "전체 선택 해제"
   },
   "volumes": {
     "quickAccess": "빠른 접근",
-    "quickAccessEmpty": "자주 사용하는 폴더를 즐겨찾기에 고정하면 여기서 빠르게 접근할 수 있습니다."
+    "quickAccessEmpty": "자주 사용하는 폴더를 즐겨찾기에 고정하면 여기서 빠르게 접근할 수 있습니다.",
+    "readOnly": {
+      "label": "읽기 전용",
+      "storage": "읽기 전용 저장소: 이 볼륨은 읽기 전용으로 마운트되어 있어 아무것도 쓸 수 없습니다.",
+      "permission": "쓸 수 없음: 서버에 이 볼륨에 쓸 권한이 없습니다. 호스트에서 소유자를 확인하세요.",
+      "access": "내 계정에서는 읽기 전용입니다."
+    }
   },
   "drives": {
     "personal": "개인",
@@ -255,7 +343,8 @@
     "home": "홈",
     "back": "뒤로 가기",
     "forward": "앞으로 가기",
-    "upOneFolder": "상위 폴더로 이동"
+    "upOneFolder": "상위 폴더로 이동",
+    "refresh": "폴더 새로고침"
   },
   "view": {
     "list": "리스트 형태로 보기",
@@ -272,7 +361,8 @@
     "emptyTitle": "즐겨찾기 없음",
     "emptyDescription": "폴더 컨텍스트 메뉴에서 별표를 눌러 이곳에 고정하세요.",
     "editTitle": "즐겨찾기 편집",
-    "icon": "아이콘"
+    "icon": "아이콘",
+    "volumeUnavailable": "볼륨을 사용할 수 없습니다 — 마운트되지 않았거나 더 이상 구성되어 있지 않습니다."
   },
   "notifications": {
     "open": "알림 열기",
@@ -283,25 +373,47 @@
       "warning": "경고",
       "success": "성공",
       "info": "정보"
-    }
+    },
+    "copyDetails": "세부 정보 복사"
   },
   "spotlight": {
-    "hintWithin": "검색어를 입력하세요"
+    "hintWithin": "검색어를 입력하세요",
+    "hintPattern": "파일 이름을 찾으려면 * 와 ? 를 사용하세요. 예: *.ps1"
   },
   "download": {
-    "preparing": "다운로드 준비 중..."
+    "preparing": "다운로드 준비 중...",
+    "asZip": "ZIP 압축 파일로 다운로드",
+    "asSeparateFiles": "개별 파일로 다운로드",
+    "chooseMode": "다운로드 방식 선택",
+    "confirmHeading": "{count}개 파일을 개별로 다운로드할까요?",
+    "confirmBody": "한 번에 {count}개의 다운로드가 시작됩니다. ZIP 압축 파일이라면 파일 하나입니다.",
+    "confirmFolders": "선택한 폴더는 어느 방식에서도 하나의 압축 파일로 받습니다.",
+    "confirmSeparate": "개별로 다운로드",
+    "confirmZip": "ZIP으로 다운로드",
+    "wrote": "{count}개 {items}을 {folder}에 저장했습니다",
+    "renamed": "덮어쓰지 않도록 이름을 바꿨습니다: {names}",
+    "failed": "다운로드가 중단되었습니다"
   },
   "clipboard": {
     "copying": "{count}개 {items} 복사 중…",
+    "downloading": "{count}개 {items} 다운로드 중…",
     "moving": "{count}개 {items} 이동 중…",
-    "working": "처리 중…"
+    "working": "처리 중…",
+    "activeTasks": "{count}개 작업 진행 중",
+    "compressing": "{name} 압축 중…",
+    "copyingUnknown": "복사 중…",
+    "extracting": "{name} 압축 푸는 중…",
+    "movingUnknown": "이동 중…",
+    "perSecond": "{value}/초",
+    "reposition": "완료 후 항목으로 돌아가기",
+    "restoring": "{count}개 {items} 복원 중…",
+    "restoringUnknown": "복원 중…"
   },
   "upload": {
-    "toggleDetailsShow": "상세 정보 보기",
-    "toggleDetailsHide": "상세 정보 숨기기",
     "pauseUploads": "업로드 정지",
     "resumeUploads": "업로드 재개",
-    "uploads": "{count}개 {items} 업로드 중"
+    "uploads": "{count}개 {items} 업로드 중",
+    "finalizing": "마무리 중"
   },
   "info": {
     "aria": "정보 패널",
@@ -312,7 +424,10 @@
     "dateTaken": "촬영된 날짜: {date}",
     "camera": "카메라: {makeModel}",
     "lens": "렌즈: {lens}",
-    "duration": "길이: {seconds}초"
+    "duration": "길이: {seconds}초",
+    "versions": "버전",
+    "folderSizeExcluded": "제외됨",
+    "folderSizeExcludedHelp": "이 경로는 폴더 크기 인덱싱에서 제외됩니다."
   },
   "auth": {
     "preparing": "탐색기를 준비하는 중입니다…",
@@ -328,24 +443,22 @@
     "login": {
       "welcome": "환영합니다",
       "subtitle": "로그인하여 {appName}에 접속하세요.",
-      "announcementConfirm": "읽음",
       "submit": "로그인",
       "announcementMigration": {
         "title": "로그인 방식이 변경되었습니다",
-        "intro": "이제부터 이메일 형식의 유저 이름으로 로그인해야 합니다.",
-        "bulletAddSuffix": "유저 이름 뒤에 {suffix}을(를) 추가하세요.",
-        "bulletPasswordSame": "비밀번호는 이전과 동일합니다.",
-        "bulletUpdateUsers": "관리자 메뉴에서 기존 유저 설정을 업데이트 할 수 있습니다."
-      }
+        "intro": "이제부터 이메일 형식의 유저 이름으로 로그인해야 합니다."
+      },
+      "totpCode": "코드",
+      "totpExplain": "비밀번호가 확인되었습니다. 인증 앱의 코드나 복구 코드 중 하나를 입력하세요.",
+      "totpSubmit": "로그인",
+      "sessionExpired": "세션이 만료되었습니다. 다시 로그인하면 이어서 계속할 수 있습니다.",
+      "totpBack": "다시 시작"
     },
     "setup": {
       "headline": "초기 설정",
       "subtitle": "관리자 계정을 생성하여 안전하게 파일을 관리하세요.",
-      "formTitle": "관리자 계정 생성",
-      "formSubtitle": "설정을 마치려면 이메일 주소와 비밀번호를 입력해주세요.",
       "submit": "설정 완료",
       "bullets": {
-        "encryption": "강력한 암호화와 감사 기능 제공.",
         "permissions": "세분화된 권한 및 사용자 관리.",
         "sso": "간편한 SSO(Single Sign-On) 지원."
       }
@@ -355,7 +468,11 @@
     "confirmPassword": "비밀번호 확인",
     "sso": {
       "continue": "SSO(Single Sign-On)로 계속"
-    }
+    },
+    "passkey": {
+      "signIn": "패스키로 로그인"
+    },
+    "emailOrUsername": "이메일 주소 또는 사용자 이름"
   },
   "breadcrumb": {
     "volumes": "볼륨",
@@ -384,7 +501,17 @@
       "filesThumbnails": "파일/썸네일",
       "security": "보안",
       "accessControl": "접근 제어",
-      "adminUsers": "유저 관리"
+      "adminUsers": "유저 관리",
+      "trash": "휴지통 및 버전",
+      "fileVersions": "파일 버전",
+      "uploads": "업로드",
+      "accountTwoFactor": "2단계 인증",
+      "accountPasskeys": "패스키",
+      "activity": "활동 로그",
+      "accountApiTokens": "API 토큰",
+      "folderSize": "폴더 크기",
+      "searchIndex": "검색 색인",
+      "ffmpeg": "FFmpeg"
     },
     "about": {
       "subtitle": "애플리케이션의 빌드 정보를 확인합니다.",
@@ -393,25 +520,44 @@
       "gitCommit": "Git 커밋 해시",
       "gitCommitHelp": "빌드 시점에 삽입된 커밋 해시입니다.",
       "branch": "브랜치",
-      "branchHelp": "빌드 시점의 Git 브랜치입니다."
+      "branchHelp": "빌드 시점의 Git 브랜치입니다.",
+      "tools": {
+        "title": "선택 도구",
+        "subtitle": "이 인스턴스가 할 수 있는 일과, 없는 도구를 설치하면 추가되는 기능입니다. 서버는 시작할 때 로그에도 같은 내용을 기록합니다.",
+        "installed": "설치됨",
+        "missing": "설치 안 됨",
+        "unused": "여기서는 사용 안 함",
+        "package": "패키지",
+        "cannotOpen": "열 수 없음: {formats}",
+        "gives": {
+          "videoThumbnails": "동영상 미리보기 이미지와 HEIC 사진의 정지 이미지",
+          "mediaDetails": "오디오와 동영상의 길이와 트랙",
+          "fastSearch": "파일 내용 빠른 검색",
+          "pdfSearch": "검색에 포함되는 PDF 텍스트",
+          "rawPreviews": "RAW 사진 미리보기",
+          "copyProgress": "대용량 복사 및 이동 진행률",
+          "archives": ".zip 외 압축 파일 탐색 및 추출"
+        }
+      }
     },
     "branding": {
       "subtitle": "인터페이스에 표시되는 애플리케이션 이름과 로고를 커스터마이징하세요.",
       "appName": "애플리케이션 이름",
       "appNameHelp": "설정된 이름은 헤더, 로그인 페이지, 페이지 하단에 표시됩니다 (최대 100 글자).",
-      "appLogoUrl": "로고 이미지",
-      "appLogoUrlHelp": "커스텀 로고로 사용할 SVG, PNG, JPG 파일을 업로드하세요 (최대 2MB).",
       "logo": "로고 이미지",
       "logoHelp": "커스텀 로고로 사용할 SVG, PNG, JPG 파일을 업로드하세요 (최대 2MB).",
-      "uploading": "업로드 중...",
-      "uploadSuccess": "로고 업로드 성공",
-      "uploadError": "로고 업로드 실패",
       "invalidFileType": "SVG, PNG, JPG 형식의 파일만 업로드 가능합니다",
       "logoError": "크기가 2MB 이하인 파일만 업로드 할 수 있습니다",
-      "fileTooLargeForDataUri": "파일 크기가 너무 큽니다. 더 작은 이미지를 사용해주세요 (500KB 이하가 가장 좋음)",
       "preview": "미리보기",
       "showPoweredBy": "기여 링크 표시",
-      "showPoweredByHelp": "페이지 하단에 'Powered by nextExplorer' 링크를 표시하여 프로젝트를 지원해주세요."
+      "showPoweredByHelp": "페이지 하단에 'Powered by nextExplorer' 링크를 표시하여 프로젝트를 지원해주세요.",
+      "defaultLogoSelected": "기본 로고가 선택되었습니다. 적용하려면 저장을 클릭하세요.",
+      "appNameRequired": "애플리케이션 이름은 비워 둘 수 없습니다.",
+      "chooseLogo": "로고 선택",
+      "chooseAnotherLogo": "다른 파일 선택",
+      "logoSelected": "새 로고가 선택되었습니다. 적용하려면 저장을 클릭하세요.",
+      "saved": "브랜딩이 저장되었습니다.",
+      "saveFailed": "브랜딩을 저장하지 못했습니다: {reason}"
     },
     "userPreferences": {
       "title": "유저 설정",
@@ -420,6 +566,8 @@
       "showHiddenFilesHelp": "파일 탐색기에서 구성된 숨김 패턴({patterns})과 일치하는 파일과 폴더를 표시합니다.",
       "showThumbnails": "썸네일 표시",
       "showThumbnailsHelp": "파일 탐색기에서 사진과 영상 파일의 미리보기 썸네일을 표시합니다.",
+      "markdownOpensInEditor": "Markdown을 편집기에서 열기",
+      "markdownOpensInEditorHelp": ".md 파일을 두 번 클릭하면 미리 보기 대신 편집기가 바로 열립니다.",
       "showSidebarFavorites": "즐겨찾기 섹션 표시",
       "showSidebarFavoritesHelp": "왼쪽 사이드바에 즐겨찾기를 표시합니다.",
       "showSidebarShares": "공유 섹션 표시",
@@ -428,13 +576,40 @@
       "showSidebarToolsHelp": "왼쪽 사이드바에 도구를 표시합니다.",
       "defaultShareExpiration": "기본 공유 기한",
       "defaultShareExpirationHelp": "새 공유를 만들 때 사용할 기본 공유 기한을 지정하세요. 공유를 생성할 때 이 설정 값을 바탕으로 기본값이 채워집니다.",
+      "defaultShareExpirationInvalid": "1 이상의 정수를 입력하거나, 기본 기한을 두지 않으려면 입력란을 비우세요.",
       "expirationValue": "기간",
       "days": "일",
       "weeks": "주",
       "months": "개월",
       "skipHome": "홈페이지 건너뛰기",
       "skipHomeHelp": "접속했을 때, 자동으로 첫 번째 볼륨으로 이동합니다. 설정하지 않을 경우 서버 설정을 따릅니다.",
-      "useEnvSetting": "서버 설정 사용"
+      "useEnvSetting": "서버 설정 사용",
+      "defaultView": "기본 보기",
+      "defaultViewHelp": "저장된 보기가 없는 폴더에 사용할 보기입니다.",
+      "viewGrid": "그리드",
+      "viewList": "목록",
+      "viewColumns": "열",
+      "viewPhotos": "사진",
+      "documentsOpenInNewTab": "문서를 새 탭에서 열기",
+      "documentsOpenInNewTabHelp": "파일을 열면 브라우저 탭이 따로 생기므로, 계속 탐색하는 동안 여러 개를 열어 둘 수 있습니다. 끄면 지금처럼 폴더 위에서 열립니다.",
+      "downloadMode": "여러 항목 다운로드",
+      "downloadModeHelp": "한 번에 두 개 이상을 다운로드할 때의 동작입니다. 선택한 폴더는 항상 하나의 압축 파일로 받습니다.",
+      "downloadModeZip": "하나의 ZIP 압축 파일",
+      "downloadModeSeparate": "개별 파일",
+      "showVersionMarks": "버전이 있는 파일 표시",
+      "showVersionMarksHelp": "이전 버전이 있는 파일에 개수와 함께 목록에서 작은 표시를 붙입니다. 누르면 기록이 열립니다.",
+      "languageHelp": "계정에 저장되어 로그인하는 모든 브라우저에 적용됩니다.",
+      "quickActions": "빠른 작업 메뉴",
+      "quickActionsHelp": "각 파일/폴더 행과 상단의 폴더 이름 위에 마우스를 올리면 작은 작업 메뉴를 표시합니다.",
+      "quickActionsReorder": "표시할 작업을 선택하고 순서를 변경하세요.",
+      "quickActionsMode": "메뉴 표시",
+      "quickActionsModeFull": "마우스를 올리면 모든 아이콘 표시",
+      "quickActionsModeCompact": "… 아이콘 (마우스를 올리면 펼침)",
+      "quickActionsPosition": "아이콘 위치",
+      "quickActionsPositionHelp": "이름 열의 한쪽 끝에 맞추면 모든 행에서 같은 자리에 놓입니다. 필요한 공간은 행에 포인터가 있든 없든 그대로 유지됩니다.",
+      "quickActionsPositionAfter": "이름 뒤",
+      "quickActionsPositionStart": "이름 열의 시작",
+      "quickActionsPositionEnd": "이름 열의 끝"
     },
     "thumbs": {
       "subtitle": "사진, 영상 파일의 미리보기 썸네일 관련 설정을 커스터마이징하세요.",
@@ -445,13 +620,22 @@
       "maxDim": "최대 해상도",
       "maxDimHelp": "가로와 세로 중 긴 면의 최대 픽셀 수를 지정하세요. 기본값은 200입니다.",
       "concurrency": "병렬 생성",
-      "concurrencyHelp": "동시에 생성 가능한 썸네일 개수를 지정하세요 (1–50). 기본값은 10입니다."
+      "concurrencyHelp": "동시에 생성 가능한 썸네일 개수를 지정하세요 (1–50). 기본값은 10입니다.",
+      "invalid": "값을 확인하세요: 품질 1~100, 최대 해상도 64~1024px, 병렬 생성 1~50."
+    },
+    "ffmpeg": {
+      "title": "FFmpeg",
+      "subtitle": "미디어 미리 보기와 메타데이터에 사용할 FFmpeg 및 FFprobe 실행 파일을 선택하세요.",
+      "containerPathHelp": "애플리케이션 컨테이너 안에서 보이는 절대 경로를 입력하세요. 호스트의 실행 파일을 쓰려면 먼저 컨테이너에 마운트하세요.",
+      "ffmpegPath": "FFmpeg 실행 파일 경로",
+      "ffprobePath": "FFprobe 실행 파일 경로",
+      "invalid": "두 경로는 모두 /로 시작하는 컨테이너의 절대 경로여야 합니다.",
+      "defaultHelp": "경로를 비워 두면 환경의 FFMPEG_PATH 또는 FFPROBE_PATH를 먼저 쓰고, 그다음 기본 포함된 실행 파일을 씁니다. 변경은 즉시 적용됩니다."
     },
     "security": {
       "subtitle": "애플리케이션에 대한 접근 방식을 설정합니다.",
       "enable": "인증 활성화",
-      "enableHelp": "비활성화 시 아무나 당신의 파일에 접근할 수 있습니다.",
-      "confirmDisable": "인증을 비활성화할 경우 불특정 다수의 인원이 당신의 파일에 접근할 수 있게 됩니다. 계속하시겠습니까?"
+      "enableHelp": "비활성화 시 아무나 당신의 파일에 접근할 수 있습니다."
     },
     "access": {
       "subtitle": "폴더별 접근 권한을 설정합니다. (권한: 읽기/쓰기, 읽기 전용, 숨김)",
@@ -460,7 +644,18 @@
       "recursive": "하위 폴더에도 적용",
       "readWrite": "읽기/쓰기",
       "readOnly": "읽기 전용",
-      "hidden": "숨김"
+      "hidden": "숨김",
+      "adminNote": "각 규칙은 관리자에게 적용되는지 여부를 나타냅니다. 그렇지 않으면 ‘읽기 전용’ 규칙은 관리자가 쓸 수 있게 두고, ‘숨김’ 규칙은 관리자에게도 폴더를 숨깁니다.",
+      "applyToAdmins": "모든 규칙을 관리자에게 적용",
+      "applyToAdminsHint": "켜면 어떤 규칙도 관리자를 통과시키지 않습니다 — 각 규칙의 확인란은 무시됩니다.",
+      "appliesToAdmins": "관리자에게도 적용",
+      "browse": "폴더 선택",
+      "pathInvalid": "이 경로는 어떤 볼륨에도 속하지 않으므로 규칙이 적용되지 않습니다.",
+      "pathMissing": "이 경로에 폴더가 없습니다. 규칙은 볼륨 이름부터 시작하여 NextExplorer에 표시되는 경로를 사용합니다.",
+      "useSuggestion": "{path} 사용",
+      "title": "접근",
+      "pickFolderTitle": "이 규칙의 폴더",
+      "appliesToAdminsHint": "이 규칙을 관리자에게도 적용합니다."
     },
     "comingSoon": {
       "subtitle": "이 설정 항목은 현재 개발 중입니다. 기대해주세요!"
@@ -471,8 +666,8 @@
       "new": "새로운 비밀번호",
       "confirm": "새로운 비밀번호 확인",
       "update": "비밀번호 변경",
-      "success": "비밀번호가 정상적으로 변경되었습니다.",
-      "validation": "모든 입력란을 채워주세요. 새 비밀번호는 최소 6글자 이상이어야 하며, 비밀번호 확인이 일치해야 합니다."
+      "validation": "모든 입력란을 채워주세요. 새 비밀번호는 최소 6글자 이상이어야 하며, 비밀번호 확인이 일치해야 합니다.",
+      "successOtherSessionsEnded": "비밀번호가 변경되었습니다. 이 계정의 다른 모든 세션은 로그아웃되었습니다."
     },
     "users": {
       "subtitle": "유저 정보, 역할, 접근 인증을 관리하세요.",
@@ -482,11 +677,9 @@
       "grantAdmin": "관리자 권한 부여",
       "grantAdminHint": "모든 설정과 유저에 대한 접근 권한을 부여합니다.",
       "displayName": "표시 이름",
-      "makeAdmin": "관리자 권한 부여",
       "resetPassword": "비밀번호 설정/재설정",
       "removeUser": "유저 삭제",
       "promptNewPassword": "{user}의 새 비밀번호를 입력하세요 (최소 6 글자):",
-      "editUser": "유저 편집",
       "volumes": "볼륨",
       "assignedVolumes": "할당된 볼륨",
       "addVolume": "볼륨 추가",
@@ -506,7 +699,10 @@
       "selectedPath": "선택된 경로",
       "volumePath": "볼륨 경로",
       "pathCannotChange": "생성된 이후에는 경로를 변경할 수 없습니다. 필요 시에는 이 볼륨을 제거하고 새로운 볼륨을 생성해야 합니다.",
-      "accessMode": "접근 모드"
+      "accessMode": "접근 모드",
+      "noUsers": "유저가 없습니다",
+      "lockedBadge": "잠김",
+      "lockedUntil": "{time}까지 잠김"
     },
     "userDetails": {
       "profileTab": "프로필",
@@ -529,17 +725,344 @@
       "localPasswordNotExistHint": "유저의 로컬 비밀번호가 설정되어 있지 않습니다.",
       "setLocalPassword": "비밀번호 설정",
       "resetLocalPassword": "비밀번호 재설정",
-      "sso": "Single Sign-On (OIDC)",
+      "sso": "통합 인증 (OIDC)",
       "oidcProvider": "OIDC 제공자",
       "oidcLinkedProfile": "연결된 프로필",
-      "noOidcProfileMessage": "이 계정과 연결된 OIDC 프로필이 없습니다."
+      "noOidcProfileMessage": "이 계정과 연결된 OIDC 프로필이 없습니다.",
+      "signInLock": "로그인 잠금",
+      "lockedHint": "로그인 실패가 너무 많아 잠겼습니다. {time}에 자동으로 해제됩니다.",
+      "notLockedHint": "잠겨 있지 않습니다. 로그인 실패가 너무 많으면 계정이 잠시 잠깁니다.",
+      "unlock": "지금 잠금 해제"
+    },
+    "trash": {
+      "title": "휴지통 및 버전",
+      "subtitle": "삭제된 항목과 파일의 이전 버전은 해당 볼륨의 예약 공간에 보관되며, 보존 기간이 끝나거나 공간이 필요할 때 제거됩니다.",
+      "enabled": "삭제한 항목을 휴지통으로 보내기",
+      "enabledHelp": "끄면 삭제 시 영구적으로 제거됩니다. 이미 휴지통에 있는 항목은 계속 만료됩니다.",
+      "retentionDays": "보관 기간(일)",
+      "retentionHelp": "1일부터 3650일까지.",
+      "maxPercent": "각 볼륨에서의 비율(%)",
+      "maxPercentHelp": "휴지통이 한 볼륨에서 차지할 수 있는 최대치, 1~90%.",
+      "maxSize": "볼륨당 크기 제한(GiB)",
+      "maxSizeHelp": "선택 사항. 비율과 제한 중 작은 값이 적용됩니다.",
+      "maxSizeNone": "제한 없음",
+      "invalid": "값을 확인하세요: 보관 기간 1~3650일, 비율 1~90%, 양수 크기 또는 비워 두기.",
+      "saveFailed": "설정을 저장할 수 없습니다.",
+      "environmentNote": "기본값은 TRASH_ENABLED, TRASH_RETENTION_DAYS, TRASH_MAX_PERCENT, TRASH_MAX_SIZE에서 가져옵니다.",
+      "zonesTitle": "볼륨별 휴지통",
+      "zonesSubtitle": "각 볼륨은 루트의 숨김 폴더 .nextexplorer에 휴지통을 두므로 삭제할 때 아무것도 복사하지 않습니다.",
+      "zonesEmpty": "아직 휴지통으로 삭제된 항목이 없습니다.",
+      "zonesFailed": "볼륨의 휴지통을 불러올 수 없습니다.",
+      "verifyFailed": "검사를 실행할 수 없습니다.",
+      "maintenanceFailed": "유지 관리를 실행할 수 없습니다.",
+      "zoneKind": {
+        "personal": "{name}의 개인 폴더",
+        "userVolume": "할당된 볼륨 {name}"
+      },
+      "available": "사용 가능",
+      "unavailable": {
+        "missing": "마운트되지 않았거나 제거됨",
+        "replaced": "다른 디스크로 교체됨",
+        "unreadable": "읽을 수 없음"
+      },
+      "usage": "{budget} 중 {used}",
+      "zoneSummary": "항목 {count}개, {budget} 중 {used}",
+      "noBudget": "제한 없음",
+      "lastPass": "마지막 유지 관리:",
+      "lastPassPurged": "{count}개 삭제됨",
+      "never": "아직 없음",
+      "verify": "검사",
+      "verifying": "검사 중…",
+      "verifyOk": "모든 볼륨의 휴지통이 일관됩니다.",
+      "verifyIssues": "문제 {count}개 발견",
+      "runMaintenance": "지금 유지 관리 실행",
+      "running": "실행 중…",
+      "events": {
+        "title": "기록",
+        "evicted": "공간 확보를 위해 보관 기간 전에 \"{name}\" 삭제됨",
+        "adopted": "중단 후 \"{name}\" 복구됨",
+        "lost": "\"{name}\"의 내용이 없었음",
+        "failed": "\"{name}\"을(를) 삭제할 수 없음",
+        "breaker": "한꺼번에 너무 많은 항목이 사라짐: 아무것도 변경하지 않음",
+        "forgotten": "관리자가 \"{name}\"을(를) 잊음",
+        "versionEvicted": "공간 확보를 위해 \"{name}\"의 버전을 제거했습니다",
+        "versionFailed": "버전을 제거하지 못했습니다",
+        "versionLost": "버전의 내용이 없었습니다",
+        "versionTooLarge": "\"{name}\"이(가) 전체 공간보다 커서 대체된 내용을 보관하지 않았습니다",
+        "versionsBreaker": "한꺼번에 너무 많은 버전이 사라져 아무것도 변경하지 않았습니다"
+      },
+      "zoneVersions": "버전 {count}개, {size}",
+      "versions": {
+        "title": "파일 버전",
+        "subtitle": "저장할 때마다 대체되는 내용을 복사 없이 휴지통과 같은 예약 공간에 보관합니다. 오래된 버전은 시간이 지나며 간격을 두고 정리됩니다.",
+        "enabled": "파일의 이전 버전 보관",
+        "enabledHelp": "휴지통과 별개로 동작합니다. 끄면 저장해도 새로 보관되지 않으며, 기존 버전은 만료되거나 삭제될 때까지 남습니다.",
+        "keepAllHours": "모든 버전 보관 (시간)",
+        "hourlyDays": "이후 시간당 하나 (일)",
+        "dailyDays": "이후 하루에 하나 (일)",
+        "maxPerFile": "파일당 최대 버전 수",
+        "sessionCheckpointMinutes": "오피스 체크포인트 (분)",
+        "tiersHelp": "이 단계 이후에는 주당 하나의 버전이 보관됩니다. 오피스 편집 세션은 하나의 버전을 남기며, 이 간격보다 자주 체크포인트를 만들지 않습니다. 고정된 버전은 간격 정리와 파일당 한도에서 제외됩니다.",
+        "invalid": "값을 확인하세요: 1~720시간, 시간 단위 1~365일, 일 단위 1~3650일, 파일당 1~1000개 버전, 체크포인트 1~1440분.",
+        "sharedSpace": "버전과 휴지통은 각 볼륨의 예약 공간을 함께 사용합니다. 공간이 부족하면 오래된 버전, 휴지통 항목, 각 파일의 최신 버전 순으로 제거되며 고정된 버전은 마지막에 제거됩니다.",
+        "environmentNote": "기본값은 VERSIONS_ENABLED, VERSIONS_KEEP_ALL_HOURS, VERSIONS_HOURLY_DAYS, VERSIONS_DAILY_DAYS, VERSIONS_MAX_PER_FILE, VERSIONS_SESSION_CHECKPOINT_MINUTES에서 가져옵니다."
+      }
+    },
+    "fileVersions": {
+      "title": "파일 버전",
+      "intro": "이전 버전을 가진 모든 파일과 그 버전이 차지하는 용량입니다. 개인 폴더를 포함한 모든 공간의 경로가 나오므로 이 페이지는 관리자 전용입니다.",
+      "search": "경로에 포함",
+      "searchPlaceholder": "이름이나 폴더의 일부",
+      "zone": "공간",
+      "anyZone": "모든 공간",
+      "state": "상태",
+      "anyState": "전체",
+      "sort": "정렬 기준",
+      "sortBytes": "사용 용량",
+      "sortCount": "버전 수",
+      "sortNewest": "가장 최근 버전",
+      "sortPath": "경로",
+      "summary": "파일 {files}개, 버전 {versions}개, {size}",
+      "file": "파일",
+      "count": "버전",
+      "size": "크기",
+      "newest": "최근",
+      "states": {
+        "live": "있음",
+        "trashed": "휴지통",
+        "orphaned": "사라짐"
+      },
+      "zoneKinds": {
+        "volume": "볼륨 {name}",
+        "personal": "개인 폴더 {name}",
+        "user-volume": "할당된 볼륨 {name}"
+      },
+      "zoneUnknown": "알 수 없는 공간",
+      "pinned": "고정됨",
+      "unavailable": "볼륨을 사용할 수 없음",
+      "deleteAll": "기록 삭제",
+      "deleteSelected": "버전 {count}개 삭제",
+      "deleteForGood": "완전히 삭제",
+      "confirmAllTitle": "{name}의 모든 버전을 삭제할까요?",
+      "confirmSomeTitle": "버전 {count}개를 삭제할까요?",
+      "confirmMessage": "해당 내용은 디스크에서 지워집니다. 파일 자체는 그대로이며, 이 작업은 되돌릴 수 없습니다.",
+      "none": "이전 버전이 있는 파일이 없습니다.",
+      "loadFailed": "목록을 읽지 못했습니다.",
+      "detailFailed": "이 기록을 읽지 못했습니다.",
+      "deleteFailed": "버전을 삭제하지 못했습니다.",
+      "previous": "이전",
+      "next": "다음",
+      "range": "{total}개 중 {from}–{to}",
+      "deleteSelectedNone": "선택한 버전 삭제"
+    },
+    "uploads": {
+      "title": "업로드",
+      "chunkSize": "청크 크기",
+      "chunkSizeHelp": "각 업로드 요청의 최대 크기입니다. 리버스 프록시 제한보다 낮게 유지하세요. 청크가 작을수록(8–32 MiB) 진행률이 더 부드럽게 표시되고, 청크가 매우 크면 눈에 띄는 단계가 나타납니다(서버가 다음 청크를 처리하기 전에 각 청크를 기록합니다).",
+      "subtitle": "파일을 서버로 전송하는 방식을 설정합니다.",
+      "chunkedEnable": "청크 업로드 활성화",
+      "chunkedEnableHelp": "TUS를 사용하여 대용량 파일을 여러 개의 작은 요청으로 나누어 전송합니다.",
+      "chunkSizeInvalid": "청크 크기를 1~{max} MiB 사이로 입력하세요.",
+      "autoFallback": "청크 업로드로 자동 전환",
+      "autoFallbackHelp": "직접 업로드가 실패하면(리버스 프록시가 본문 크기를 거부하는 경우) 안전한 크기의 청크 업로드로 자동 전환하며, 주소별로 기억됩니다. 로컬에서는 직접 전송을 유지하고 프록시 뒤에서는 청크로 전환하기에 좋습니다.",
+      "autoFallbackActive": "이 주소에 대해 기억된 청크 크기: {size} MiB.",
+      "autoFallbackReset": "초기화 (직접 전송으로 복귀)"
+    },
+    "twoFactor": {
+      "title": "2단계 인증",
+      "intro": "비밀번호에 더해, 휴대폰의 코드까지.",
+      "notLocalUser": "이 계정은 ID 공급자를 통해 로그인하므로 2단계 인증도 그쪽에서 설정합니다.",
+      "off": "이 계정의 2단계 인증이 꺼져 있습니다.",
+      "on": "2단계 인증이 켜져 있습니다.",
+      "turnOn": "켜기",
+      "turnOff": "끄기",
+      "scan": "인증 앱으로 이 코드를 스캔하세요.",
+      "orType": "또는 앱에 이 비밀키를 입력하세요:",
+      "qrLabel": "인증 앱용 QR 코드",
+      "codeLabel": "앱의 코드",
+      "confirm": "확인",
+      "confirmPassword": "비밀번호",
+      "codesTitle": "복구 코드",
+      "codesExplain": "휴대폰이 아닌 곳에 보관하세요. 각 코드는 한 번 로그인할 수 있으며, 휴대폰이 없는 날을 위한 것입니다. 지금만 표시되고 다시는 볼 수 없습니다.",
+      "copyCodes": "복사",
+      "copied": "복사했습니다.",
+      "codesLeft": "복구 코드 1개 남음 | 복구 코드 {count}개 남음",
+      "newCodesButton": "새 코드 만들기",
+      "newCodes": "새 복구 코드를 만들었습니다. 이전 코드는 더 이상 쓸 수 없습니다.",
+      "turnedOn": "2단계 인증이 켜졌습니다.",
+      "turnedOff": "2단계 인증이 꺼졌습니다.",
+      "loadFailed": "이 계정의 2단계 인증 설정을 읽지 못했습니다.",
+      "startFailed": "2단계 인증 설정을 시작하지 못했습니다.",
+      "confirmFailed": "코드가 올바르지 않습니다.",
+      "codesFailed": "새 복구 코드를 만들지 못했습니다.",
+      "disableFailed": "2단계 인증을 끄지 못했습니다.",
+      "wrongPassword": "비밀번호가 올바르지 않습니다."
+    },
+    "passkeys": {
+      "title": "패스키",
+      "intro": "비밀번호 대신 지문, 얼굴 또는 기기 PIN으로 로그인합니다.",
+      "notLocalUser": "이 계정은 ID 공급자를 통해 로그인하며, 패스키도 그곳에 있습니다.",
+      "unavailable": "패스키에는 보안 페이지가 필요합니다.",
+      "unavailableHelp": "이 페이지는 https로 제공되지 않아 브라우저가 패스키를 묶을 대상이 없습니다. https 또는 localhost로 서버에 접속한 뒤 추가하세요.",
+      "none": "이 계정에는 아직 패스키가 없습니다.",
+      "nameLabel": "패스키 추가",
+      "namePlaceholder": "나중에 구분할 수 있도록 이름을 지정하세요",
+      "add": "패스키 추가",
+      "added": "{name}을(를) 추가했습니다.",
+      "addedOn": "{when}에 추가됨",
+      "lastUsed": "마지막 사용 {when}",
+      "neverUsed": "사용한 적 없음",
+      "synced": "기기 간 동기화됨",
+      "rename": "이름 변경",
+      "renamePrompt": "이 패스키의 이름",
+      "renamed": "이름을 변경했습니다.",
+      "renameFailed": "이 패스키의 이름을 변경하지 못했습니다.",
+      "remove": "삭제",
+      "removed": "{name}을(를) 삭제했습니다.",
+      "removeFailed": "이 패스키를 삭제하지 못했습니다.",
+      "confirmPassword": "로그인 방식을 바꾸려면 비밀번호를 입력하세요",
+      "loadFailed": "이 계정의 패스키를 읽지 못했습니다.",
+      "addFailed": "이 패스키를 추가하지 못했습니다.",
+      "cancelled": "아무것도 추가되지 않았습니다: 브라우저가 닫혔거나 시간이 초과되었습니다.",
+      "alreadyHere": "이 기기에는 이미 이 계정의 패스키가 있습니다."
+    },
+    "activity": {
+      "title": "활동 로그",
+      "intro": "누가, 언제, 어디서 무엇을 했는지. 요청하기 전에는 꺼져 있습니다.",
+      "enabled": "활동 기록",
+      "enabledHelp": "켜져 있는 동안 로그인, 다운로드, 업로드, 삭제, 복원, 공유, 계정 변경이 기록됩니다. 켜기 전의 일은 남아 있지 않습니다.",
+      "retention": "보관 기간(일)",
+      "retentionInvalid": "1일에서 3650일 사이.",
+      "saveFailed": "설정을 저장하지 못했습니다.",
+      "off": "로그가 꺼져 있어 아무것도 기록되지 않습니다.",
+      "none": "아직 기록된 항목이 없습니다.",
+      "loadFailed": "로그를 읽지 못했습니다.",
+      "clearFailed": "로그를 비우지 못했습니다.",
+      "filterAction": "종류",
+      "anyAction": "모든 종류",
+      "filterText": "검색",
+      "filterTextPlaceholder": "이름 또는 경로",
+      "refresh": "새로 고침",
+      "clear": "로그 비우기",
+      "more": "더 보기",
+      "when": "시각",
+      "who": "누가",
+      "what": "무엇",
+      "target": "대상",
+      "from": "출처",
+      "refused": "거부됨",
+      "actions": {
+        "sign-in": "로그인",
+        "sign-out": "로그아웃",
+        "account-password": "비밀번호 변경",
+        "account-two-factor": "2단계 인증 변경",
+        "account-passkey": "패스키 변경",
+        "admin-user": "계정 변경",
+        "admin-settings": "설정 변경",
+        "admin-activity-clear": "기록 비움",
+        "share-create": "공유 링크 생성",
+        "share-delete": "공유 링크 삭제",
+        "share-download": "링크로 다운로드",
+        "share-upload": "링크로 업로드",
+        "file-download": "다운로드",
+        "file-upload": "업로드",
+        "file-delete": "휴지통으로 이동",
+        "file-restore": "복원",
+        "file-purge": "영구 삭제",
+        "versions-purge": "버전 삭제됨",
+        "account-token": "API 토큰 변경"
+      }
+    },
+    "apiTokens": {
+      "title": "API 토큰",
+      "intro": "토큰을 쓰면 스크립트가 비밀번호나 브라우저 없이 사용자를 대신해 이 서버를 이용할 수 있습니다. 토큰은 하나씩 따로 취소할 수 있고, 어떤 토큰도 계정을 바꾸거나 서버를 관리할 수 없습니다.",
+      "none": "이 계정에는 토큰이 없습니다.",
+      "newToken": "새 토큰",
+      "nameLabel": "이름",
+      "namePlaceholder": "백업 스크립트",
+      "scopeLabel": "허용 범위",
+      "scopeRead": "읽기 전용",
+      "scopeWrite": "읽기 및 쓰기",
+      "scopeReadHelp": "목록 보기, 검색, 내려받기를 할 수 있습니다. 아무것도 바꿀 수 없습니다.",
+      "scopeWriteHelp": "파일에 대해 사용자가 할 수 있는 일을 합니다: 올리기, 옮기기, 이름 바꾸기, 삭제.",
+      "expiryLabel": "유효 기간",
+      "expiryNever": "취소할 때까지",
+      "expiryDays": "{days}일",
+      "confirmPassword": "비밀번호",
+      "create": "토큰 발급",
+      "rename": "이름 바꾸기",
+      "revoke": "취소",
+      "renamePrompt": "이 토큰의 새 이름",
+      "renamed": "토큰 이름을 바꿨습니다.",
+      "revoked": "{name}을(를) 취소했으며 지금부터 작동하지 않습니다.",
+      "revokeConfirm": "{name}을(를) 취소할까요? 이 토큰을 쓰는 모든 것이 즉시 멈춥니다.",
+      "shownOnce": "토큰입니다. 한 번만 표시되며 다시 볼 수 없습니다 — 지금 복사하세요.",
+      "copy": "복사",
+      "copied": "복사됨",
+      "useIt": "모든 요청에 이 헤더로 보내세요.",
+      "createdOn": "{when} 발급",
+      "lastUsed": "마지막 사용 {when}, {from}",
+      "neverUsed": "사용한 적 없음",
+      "unknownAddress": "알 수 없는 주소",
+      "expiresOn": "{when} 만료",
+      "neverExpires": "만료 없음",
+      "limits": "토큰은 소속된 계정보다 결코 더 많은 권한을 갖지 않으며 언제나 더 적습니다: 비밀번호 변경, 패스키 추가, 다른 토큰 발급, 서버 관리, 터미널 열기를 할 수 없습니다. 계정당 최대 50개입니다.",
+      "loadFailed": "토큰을 불러오지 못했습니다.",
+      "createFailed": "토큰을 발급하지 못했습니다.",
+      "renameFailed": "토큰 이름을 바꾸지 못했습니다.",
+      "revokeFailed": "토큰을 취소하지 못했습니다."
+    },
+    "folderSize": {
+      "title": "폴더 크기",
+      "subtitle": "폴더 크기 계산 및 인덱싱에서 제외할 경로를 지정합니다.",
+      "running": "폴더 크기 측정",
+      "runningHelp": "폴더를 백그라운드에서 측정해 목록에 크기가 표시되도록 합니다.",
+      "modeOff": "끔",
+      "modeShallow": "자체 파일만",
+      "modeFull": "안에 있는 모든 것",
+      "environment": "환경 변수로 정의된 제외 항목",
+      "additional": "추가 제외 항목",
+      "placeholder": "Stacks/docker/overlay2",
+      "none": "설정된 경로 없음"
+    },
+    "searchIndex": {
+      "title": "검색 색인",
+      "subtitle": "콘텐츠 색인에서 경로를 제외합니다.",
+      "running": "검색 색인 유지",
+      "runningHelp": "볼륨의 문서를 백그라운드에서 읽어, 내용 검색이 바로 응답하도록 합니다.",
+      "environment": "환경에서 정의된 제외 항목",
+      "additional": "추가 제외 항목",
+      "none": "구성된 경로 없음",
+      "placeholder": "백업/2024"
+    },
+    "featureOff": {
+      "title": "이 기능은 활성화되어 있지 않습니다",
+      "howTo": "활성화하려면 {setting} 을(를) 설정하고 컨테이너를 다시 시작하세요.",
+      "kept": "여기서 설정한 내용은 저장되며 활성화되는 즉시 적용됩니다.",
+      "useSwitch": "위의 스위치로 켜세요.",
+      "locked": "환경의 {variable}(으)로 설정되어 있어, 여기가 아니라 그곳에서 결정됩니다."
     }
+  },
+  "mediaPreview": {
+    "audioTrack": "오디오 트랙",
+    "audioTrackNumbered": "트랙 {number}",
+    "close": "미리보기 닫기",
+    "download": "미디어 다운로드",
+    "imageLoadError": "이 이미지를 표시할 수 없습니다.",
+    "next": "다음 미디어",
+    "noPlayableAudio": "이 동영상의 오디오는 {codecs}이며, 브라우저가 디코딩할 수 없습니다. 영상은 재생되지만 소리는 나지 않습니다.",
+    "noPlayableVideo": "이 동영상은 {codecs} 형식이며, 브라우저가 디코딩할 수 없습니다. 미디어 플레이어에서 열어 보세요.",
+    "previous": "이전 미디어",
+    "rotateLeft": "왼쪽으로 회전",
+    "rotateRight": "오른쪽으로 회전",
+    "subtitleExternal": "외부 파일",
+    "subtitleForced": "강제",
+    "zoomIn": "확대",
+    "zoomOut": "축소"
   },
   "share": {
     "sharedWithMe": "받은 공유 파일",
-    "sharedWithMeDescription": "다른 사람이 내 계정에 공유한 파일 및 폴더 목록입니다.",
     "sharedByMe": "보낸 공유 파일",
-    "sharedByMeDescription": "내가 다른 사람에게 공유한 링크 및 폴더 목록입니다.",
     "shareCreated": "공유가 생성되었습니다",
     "createShareLink": "공유 링크 생성",
     "shareLink": "공유 링크",
@@ -580,19 +1103,319 @@
     "signInToAccess": "로그인",
     "requiresAuthentication": "이 공유에 접근하려면 인증이 필요합니다.",
     "noSharedItemsToShow": "표시할 공유 항목이 없습니다",
-    "noSharedItemsYet": "다른 사람이 당신에게 공유한 파일 또는 폴더가 이 곳에 나타납니다.",
-    "adjustFilters": "다른 항목들을 확인하려면 필터를 수정하거나 검색어를 비워주세요.",
     "filterByNameOrPath": "필터: 이름 또는 경로",
     "sharedBy": "소유자에 의해 공유됨",
     "lastAccessed": "마지막 접근",
     "created": "생성됨",
-    "noMyShares": "아직 생성된 공유가 없습니다.",
-    "noMySharesDescription": "파일 및 폴더에 대한 공유를 생성하면 이 곳에 표시됩니다.",
-    "mySharesCount": "{count}개 공유 링크 활성화됨",
     "confirmDeleteShare": "이 공유를 삭제하시겠습니까? 이 링크를 가진 사람들이 더 이상 접근할 수 없습니다.",
     "removeShare": "공유 삭제",
     "sharedWithAnyone": "모두",
-    "sharedWithUsers": "{count} 유저 | {count} 유저",
-    "expiresNever": "없음"
+    "expiresNever": "없음",
+    "directFileLink": "파일 직접 링크",
+    "directFolderLink": "폴더 ZIP 직접 링크",
+    "copyShareLink": "공유 링크 복사",
+    "directLinkMode": "직접 링크 모드",
+    "copyDirectFileLink": "파일 직접 링크 복사",
+    "copyDirectFolderLink": "폴더 ZIP 직접 링크 복사",
+    "directLinkModes": {
+      "auto": "자동",
+      "inline": "보기",
+      "raw": "원본",
+      "download": "다운로드",
+      "editor": "에디터"
+    },
+    "deleteShareTitle": "공유를 삭제하시겠습니까?",
+    "deleteShareMessage": "이 링크를 가진 사람들이 더 이상 공유된 항목에 접근할 수 없습니다.",
+    "creating": "생성 중…",
+    "expires": "만료",
+    "loadingUsers": "유저 정보 로딩 중...",
+    "password": "비밀번호",
+    "protected": "보호됨",
+    "sharedWith": "공유 대상",
+    "editShareLink": "공유 링크 편집",
+    "saveShare": "변경 사항 저장",
+    "advancedPermissions": "고급",
+    "allowDelete": "파일 삭제 허용",
+    "allowCreateFolder": "폴더 생성 허용",
+    "allowCreateFile": "파일 생성 허용",
+    "allowUpload": "파일 및 폴더 업로드 허용",
+    "activity": "활동",
+    "activityDetails": "활동 상세",
+    "accesses": "접근",
+    "downloads": "다운로드",
+    "accessCount": "접근 횟수",
+    "downloadCount": "다운로드 횟수",
+    "lastAccessIp": "마지막 접근 IP",
+    "lastDownloaded": "마지막 다운로드",
+    "lastDownloadIp": "마지막 다운로드 IP",
+    "noActivity": "없음",
+    "noIpRecorded": "기록된 IP 없음",
+    "allowDownload": "다운로드 허용",
+    "allowDownloadHelp": "끄면 파일을 읽을 수는 있지만 복사본을 가져갈 수는 없습니다.",
+    "versionsVisible": "파일 버전 표시",
+    "versionsVisibleHelp": "이 공유를 사용하는 사람은 파일의 이전 버전을 볼 수 있고, 편집 권한이 있으면 복원할 수 있습니다.",
+    "versionsDownload": "버전 다운로드 허용"
+  },
+  "trash": {
+    "title": "휴지통",
+    "menu": "휴지통",
+    "subtitle": "항목은 삭제 후 {count}일이 지나면 영구 삭제됩니다.",
+    "empty": "휴지통이 비어 있습니다.",
+    "disabled": "휴지통이 꺼져 있습니다. 삭제하면 영구적으로 제거됩니다. 여기에 남은 항목은 복원할 수 있습니다.",
+    "unavailable": "볼륨을 사용할 수 없음",
+    "expiresToday": "오늘",
+    "expiresIn": "{count}일 후",
+    "columns": {
+      "originalLocation": "원래 위치",
+      "deletedBy": "삭제한 사람",
+      "deletedAt": "삭제한 날짜",
+      "expires": "영구 삭제",
+      "modified": "수정한 날짜"
+    },
+    "location": {
+      "personal": "개인 폴더",
+      "unknown": "알 수 없음"
+    },
+    "deletedBy": {
+      "you": "나",
+      "shareLink": "공유 링크",
+      "unknown": "알 수 없음"
+    },
+    "actions": {
+      "restore": "복원",
+      "deletePermanently": "영구 삭제",
+      "empty": "휴지통 비우기",
+      "openLocation": "원래 위치 열기",
+      "selectAll": "모두 선택",
+      "select": "{name} 선택",
+      "open": "{name} 열기",
+      "restoreFolder": "폴더 전체 복원",
+      "restoreTo": "다른 위치에 복원…"
+    },
+    "confirm": {
+      "deleteTitle": "영구 삭제하시겠습니까?",
+      "deleteMessage": "항목 {count}개가 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+      "emptyTitle": "휴지통을 비우시겠습니까?",
+      "emptyMessage": "휴지통의 모든 항목이 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
+    },
+    "results": {
+      "restored": "항목 {count}개 복원됨",
+      "restoredTo": "{path}에 복원됨",
+      "renamed": "\"{name}\"은(는) 이름이 이미 사용 중이어서 \"{newName}\"(으)로 복원되었습니다.",
+      "notRestored": "항목 {count}개를 복원할 수 없음",
+      "deleted": "항목 {count}개 영구 삭제됨",
+      "notDeleted": "항목 {count}개를 삭제할 수 없음",
+      "emptied": "휴지통을 비웠습니다: 항목 {count}개 삭제됨",
+      "leftBehind": "항목 {count}개를 삭제할 수 없어 아직 남아 있습니다."
+    },
+    "reasons": {
+      "forbidden": "원래 위치에 더 이상 쓸 수 없습니다.",
+      "blocked": "원래 폴더 자리에 이제 다른 것이 있습니다.",
+      "unavailable": "볼륨을 사용할 수 없습니다.",
+      "busy": "이미 처리 중입니다.",
+      "lost": "내용이 사라졌습니다.",
+      "notFound": "더 이상 휴지통에 없습니다.",
+      "unknown": "처리할 수 없습니다.",
+      "destinationForbidden": "그 폴더에 항목을 만들 수 없습니다.",
+      "invalidDestination": "그 폴더로는 옮길 수 없습니다."
+    },
+    "errors": {
+      "load": "휴지통을 불러올 수 없습니다.",
+      "action": "휴지통에서 해당 작업을 수행할 수 없습니다.",
+      "loadFolder": "이 폴더를 열 수 없습니다."
+    },
+    "browse": {
+      "breadcrumb": "휴지통 내 위치",
+      "deletedFrom": "{date}에 {location}에서 삭제됨",
+      "hint": "복원하면 선택한 항목이 이 폴더 안의 원래 자리로 돌아갑니다. 나머지는 휴지통에 남습니다.",
+      "empty": "이 폴더는 비어 있습니다.",
+      "back": "휴지통으로 돌아가기"
+    },
+    "contextMenu": {
+      "label": "{name} 작업",
+      "labelMany": "항목 {count}개 작업",
+      "open": "열기",
+      "preview": "미리 보기"
+    },
+    "shares": {
+      "badge": "공유됨",
+      "badgeTitle": "공유 링크 {count}개, 휴지통에 있는 동안 꺼짐",
+      "chooseTitle": "공유 링크는 어떻게 할까요?",
+      "chooseMessage": "복원하는 항목에 공유 링크 {count}개가 있었습니다. 삭제된 뒤로 작동하지 않습니다.",
+      "chooseElsewhere": "되살리면 새 위치를 가리킵니다.",
+      "keep": "공유 링크 복원",
+      "drop": "공유 링크 삭제",
+      "deleteNotice": "공유 링크도 함께 영구적으로 삭제됩니다.",
+      "restored": "공유 링크 {count}개를 되살렸습니다",
+      "dropped": "공유 링크 {count}개를 삭제했습니다"
+    }
+  },
+  "versions": {
+    "title": "버전",
+    "menu": "버전",
+    "aria": "파일 버전",
+    "current": "현재 버전",
+    "empty": "아직 이전 버전이 없습니다. 저장할 때마다 대체되는 내용이 보관됩니다.",
+    "disabled": "파일 버전이 꺼져 있습니다. 저장해도 새 버전이 보관되지 않습니다. 아래 버전은 만료될 때까지 남습니다.",
+    "loadFailed": "버전을 불러오지 못했습니다.",
+    "notShared": "이 파일의 기록은 공유되지 않았습니다.",
+    "unavailable": "디스크에서 내용을 찾을 수 없습니다.",
+    "unknownAuthor": "알 수 없는 작성자",
+    "shareLink": "링크를 가진 사용자",
+    "pinned": "고정됨",
+    "aside": "따로 보관됨",
+    "asideHelp": "복원 전에 열린 편집기가 저장한 내용입니다. 복원을 되돌리지 않도록 여기에 보관했습니다.",
+    "total": "버전 {count}개, {size}",
+    "source": {
+      "editor": "텍스트 편집기",
+      "shareEditor": "공유를 통한 편집기",
+      "onlyoffice": "ONLYOFFICE",
+      "collabora": "Collabora",
+      "restore": "복원된 버전",
+      "external": "앱 외부에서 변경됨"
+    },
+    "actions": {
+      "menu": "버전 작업",
+      "select": "이 버전 선택",
+      "selectAll": "모두 선택",
+      "deleteSelected": "선택 항목 삭제 ({count})",
+      "deleteAll": "모두 삭제",
+      "preview": "읽기 전용으로 열기",
+      "download": "다운로드",
+      "restore": "복원",
+      "rename": "이름 지정…",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "delete": "삭제",
+      "restoreCopy": "사본으로 복원…",
+      "replaceOther": "다른 파일 바꾸기…"
+    },
+    "confirm": {
+      "restoreTitle": "이 버전을 복원할까요?",
+      "restoreMessage": "\"{name}\"이(가) {date}의 내용으로 돌아갑니다. 현재 내용은 버전으로 보관됩니다.",
+      "deleteTitle": "버전 {count}개를 삭제할까요?",
+      "deleteMessage": "버전 {count}개가 영구적으로 삭제됩니다.",
+      "deleteAllTitle": "모든 버전을 삭제할까요?",
+      "deleteAllMessage": "\"{name}\"의 모든 이전 버전이 고정된 버전까지 영구적으로 삭제됩니다. 파일 자체는 그대로 남습니다.",
+      "replaceTitle": "\"{target}\"을(를) 바꿀까요?",
+      "replaceMessage": "\"{target}\"의 내용이 \"{name}\"의 이 버전으로 바뀝니다. 현재 내용은 해당 파일의 버전으로 보관됩니다.",
+      "replace": "바꾸기"
+    },
+    "rename": {
+      "title": "이 버전의 이름 지정",
+      "placeholder": "예: 고객에게 보낸 버전",
+      "help": "이름을 지정하면 버전을 쉽게 찾을 수 있습니다. 자동 정리에서 제외하려면 고정하세요."
+    },
+    "results": {
+      "restored": "버전을 복원했습니다",
+      "unchanged": "파일에 이미 이 내용이 있습니다",
+      "deleted": "버전 {count}개를 삭제했습니다",
+      "renamed": "버전 이름을 지정했습니다",
+      "pinned": "버전을 고정했습니다. 자동 정리에서 보존됩니다",
+      "unpinned": "버전 고정을 해제했습니다",
+      "copied": "사본을 만들었습니다: {path}",
+      "replaced": "\"{path}\"을(를) 바꿨습니다"
+    },
+    "errors": {
+      "action": "이 버전에 대한 작업이 실패했습니다"
+    },
+    "mark": "이전 버전 {count}개"
+  },
+  "onlyoffice": {
+    "renamedHeading": "이름 변경됨",
+    "renamedBody": "문서 이름이 {name}(으)로 바뀌었습니다.",
+    "renameFailed": "{name}(으)로 이름을 바꾸지 못했습니다",
+    "andOthers": "외 {count}개",
+    "transferHeading": "파일 편집 중",
+    "transferBody": "이 파일은 OnlyOffice에서 열려 있습니다. 계속하면 진행 중인 저장 작업에 문제가 생길 수 있습니다. 계속하시겠습니까?",
+    "transferCancel": "취소",
+    "transferConfirm": "계속",
+    "editingBy": "ONLYOFFICE에서 편집 중: {names}",
+    "editingNow": "ONLYOFFICE에서 편집 중",
+    "savedAsHeading": "이 폴더에 저장됨",
+    "savedAsBody": "{name}이(가) 원본 옆에 추가되었습니다.",
+    "saveAsFailed": "{name}을(를) 저장하지 못했습니다",
+    "editingBody": "{names} 파일이(가) OnlyOffice에서 열려 있습니다. {action} 작업을 계속 진행합니다. | {names} 파일이(가) OnlyOffice에서 열려 있습니다. {action} 작업을 계속 진행합니다.",
+    "editingHeading": "파일 편집 중",
+    "pickFailed": "선택한 파일을 사용할 수 없습니다",
+    "actionCopy": "복사",
+    "actionDelete": "삭제",
+    "actionMove": "이동",
+    "actionRename": "이름 바꾸기",
+    "pickCompare": "문서와 비교",
+    "pickDocument": "문서 선택",
+    "pickImage": "이미지 삽입",
+    "pickSpreadsheet": "스프레드시트 선택"
+  },
+  "preview": {
+    "nothingOpensIt": "여기에서 {name}을(를) 열 수 있는 것이 없습니다.",
+    "backToFolder": "폴더로 돌아가기",
+    "tooLargeToRenderSized": "이 문서는 {size}입니다. 미리 보기는 브라우저에서 모든 요소를 배치하므로 {limit}에서 멈춥니다. 편집기에서 열거나 내려받으세요.",
+    "tooLargeToRenderWithEditor": "이 문서는 {size}입니다. 미리 보기는 브라우저에서 모든 요소를 배치하므로 {limit}에서 멈춥니다. 편집기는 {editorLimit}까지 엽니다. 편집기에서 열거나 내려받으세요.",
+    "stillRendering": "그리는 중… {percent}%"
+  },
+  "archive": {
+    "password": {
+      "title": "비밀번호 필요",
+      "description": "이 압축 파일은 보호되어 있습니다. 압축을 풀려면 비밀번호를 입력하세요.",
+      "label": "압축 파일 비밀번호",
+      "invalid": "비밀번호가 올바르지 않거나 압축 파일이 손상되었습니다.",
+      "submit": "압축 풀기",
+      "extracting": "압축 푸는 중..."
+    },
+    "breadcrumb": "압축 파일 안",
+    "empty": "이 폴더는 비어 있습니다.",
+    "download": "다운로드",
+    "downloadNamed": "{name} 다운로드",
+    "outside": "항목 {count}개는 표시되지 않습니다: 이름이 압축 파일 바깥을 가리킵니다.",
+    "unreadable": "이 압축 파일을 읽을 수 없습니다.",
+    "readFailed": "이 파일을 읽을 수 없습니다.",
+    "notReadable": "이런 종류의 파일은 여기에서 표시할 수 없습니다.",
+    "tooBigToRead": "여기에 표시하기에는 너무 큽니다: {size}, 한도는 {ceiling}입니다. 내려받거나 압축을 풀어서 여세요.",
+    "extract": "여기에 압축 풀기",
+    "extractTo": "다음 위치에 풀기…",
+    "extractNamed": "{name}을(를) 여기에 압축 풀기",
+    "selectAll": "여기 있는 항목 모두 선택",
+    "selectNamed": "{name} 선택",
+    "selected": "1개 선택됨 | {count}개 선택됨",
+    "extracted": "압축을 풀었습니다: {name}",
+    "extractedNothing": "나온 것이 없습니다.",
+    "extractFailed": "압축을 풀 수 없습니다.",
+    "count": "이 압축 파일의 항목 {count}개"
+  },
+  "storagePicker": {
+    "root": "저장소",
+    "empty": "선택할 항목이 없습니다",
+    "breadcrumb": "폴더 경로",
+    "chooseFolder": "이 폴더 선택"
+  },
+  "destinationPicker": {
+    "moveTitle": "이동 위치",
+    "copyTitle": "복사 위치",
+    "moveHere": "여기로 이동",
+    "copyHere": "여기에 복사",
+    "noFolders": "폴더가 없습니다",
+    "rootRejected": "먼저 볼륨이나 폴더를 선택하세요",
+    "itselfRejected": "폴더를 자기 자신으로 이동할 수 없습니다",
+    "descendantRejected": "폴더를 자신의 하위 폴더로 이동할 수 없습니다",
+    "alreadyThereRejected": "이미 여기에 있습니다",
+    "restoreTitle": "복원할 위치",
+    "restoreHere": "여기에 복원",
+    "versionCopyTitle": "사본 복원 위치",
+    "versionCopyHere": "여기에 사본 복원",
+    "replaceTitle": "바꿀 파일 선택",
+    "replaceHere": "이 파일 바꾸기",
+    "fileRequired": "파일을 선택하세요",
+    "sameFileRejected": "이 파일이 아닌 다른 파일을 선택하세요",
+    "nothingHere": "여기에는 아무것도 없습니다",
+    "extractTitle": "다음 위치에 풀기",
+    "extractHere": "여기에 풀기"
+  },
+  "links": {
+    "outside": "이 볼륨 밖을 가리키는 링크",
+    "outsideExplained": "{name}은(는) 이 볼륨 밖의 위치를 가리키는 링크입니다. 여기서는 열거나 이름을 바꾸거나 삭제할 수 없습니다. 더 이상 필요하지 않으면 서버에서 제거하세요."
+  },
+  "quickActions": {
+    "menu": "빠른 작업"
   }
 }

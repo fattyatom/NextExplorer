@@ -2,6 +2,8 @@ const express = require('express');
 
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { pathExists } = require('../utils/fsUtils');
+const env = require('../config/env');
+const { withStorage } = require('../services/storageWritability');
 const { getSettings, getUserSettings } = require('../services/settingsService');
 const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
@@ -10,13 +12,52 @@ const { NotFoundError } = require('../errors/AppError');
 const router = express.Router();
 const { resolvePathWithAccess } = require('../services/accessManager');
 const { listDirectoryItems } = require('../services/directoryListingService');
+const versions = require('../services/versions');
+const { rightsFrom: versionRights } = versions;
+
+/**
+ * The mark that says a file has earlier versions, for a whole listing.
+ *
+ * Counted once for the folder rather than once per row, and only when somebody
+ * asked to see it — the preference is on by default, and turning it off takes
+ * the query away as well as the icon, so it costs nothing to somebody who does
+ * not want it.
+ *
+ * The right to see a history is the row's own and not the folder's: a share
+ * hands out histories only when its owner said so, and that is decided here
+ * from each child's access rather than from the folder's.
+ */
+const versionMarks = async (directoryPath, userSettings) => {
+  if (userSettings?.showVersionMarks === false) return null;
+
+  let marks;
+  try {
+    marks = await versions.marksForFolder(directoryPath);
+  } catch (error) {
+    // A listing is not worth failing over a count. Nothing is marked, and the
+    // history is still one right-click away.
+    logger.warn({ err: error, directoryPath }, 'File versions were not counted for a listing');
+    return null;
+  }
+  if (!marks || marks.size === 0) return null;
+
+  return ({ name, stats, access }) => {
+    if (!stats?.isFile()) return null;
+    const mark = marks.get(name);
+    if (!mark || !versionRights(access).see) return null;
+    return { versions: { count: mark.versions, bytes: mark.bytes, newest: mark.newest } };
+  };
+};
 
 router.get(
   '/browse/{*splat}',
   asyncHandler(async (req, res) => {
     const settings = await getSettings();
     const userSettings = req.user?.id ? await getUserSettings(req.user.id) : {};
-    const thumbsEnabled = settings?.thumbnails?.enabled !== false;
+    // Off for the whole installation, or off in the settings: either one means
+    // the listing must not promise a thumbnail the server will never make.
+    const thumbsEnabled =
+      env.THUMBNAILS_ENABLED !== false && settings?.thumbnails?.enabled !== false;
     const includeHiddenFiles = userSettings?.showHiddenFiles === true;
     const rawPath = (req.params.splat || []).join('/');
     const inputRelativePath = normalizeRelativePath(rawPath);
@@ -46,20 +87,35 @@ router.get(
       parentLogicalPath: relativePath,
       context,
       thumbsEnabled,
-      excludeDownloadArtifacts: true,
       includeHiddenFiles,
-      permissionRules: settings?.access?.rules || [],
+      access: settings?.access || null,
+      itemExtras: await versionMarks(directoryPath, userSettings),
     });
+
+    // What the account may do here, less what the storage itself refuses: a
+    // folder on a read-only mount offers no New, Upload or Delete to anyone.
+    const access = await withStorage(accessInfo, directoryPath);
 
     const response = {
       items: fileData,
       access: {
-        canRead: accessInfo.canRead,
-        canWrite: accessInfo.canWrite,
-        canUpload: accessInfo.canUpload,
-        canDelete: accessInfo.canDelete,
-        canShare: accessInfo.canShare,
-        canDownload: accessInfo.canDownload,
+        canRead: access.canRead,
+        canWrite: access.canWrite,
+        canUpload: access.canUpload,
+        canDelete: access.canDelete,
+        canCreateFolder: access.canCreateFolder,
+        // A share may permit folders and refuse files, or the other way
+        // round, so the two are answered apart.
+        canCreateFile: access.canCreateFile,
+        canShare: access.canShare,
+        canDownload: access.canDownload,
+        // Whether the files here show their history, which a share hands out
+        // only when its owner said so.
+        canSeeVersions: versionRights(access).see,
+        // Why nothing can be written here when the storage is the reason:
+        // `storage` for a read-only mount, `permission` for a folder the
+        // server may not write in.
+        readOnly: access.readOnly || null,
       },
       current: {
         isDirectory: true,
@@ -76,6 +132,9 @@ router.get(
         sourceFolderName: pathParts[pathParts.length - 1] || '',
       };
     }
+    // Listings carry transient information such as active OnlyOffice sessions.
+    // Keep browser and proxy caches from serving an out-of-date directory view.
+    res.setHeader('Cache-Control', 'private, no-store');
 
     res.json(response);
   })

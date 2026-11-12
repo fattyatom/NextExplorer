@@ -69,7 +69,15 @@
     "shares": "Compartilhamentos",
     "unsavedChanges": "Você tem alterações não salvas",
     "readonly": "Somente leitura",
-    "readwrite": "Leitura/Escrita"
+    "readwrite": "Leitura/Escrita",
+    "add": "Adicionar",
+    "back": "Voltar",
+    "logoAlt": "Logotipo de {name}",
+    "toggleSection": "Mostrar ou ocultar a seção",
+    "dismissWarning": "Dispensar o aviso",
+    "reset": "Redefinir",
+    "moveUp": "Mover para cima",
+    "moveDown": "Mover para baixo"
   },
   "editor": {
     "editing": "Editando",
@@ -77,13 +85,17 @@
     "theme": "Tema",
     "editorSettings": "Configurações do editor",
     "wrapLines": "Quebrar linhas",
-    "confirmCloseWithoutSaving": "Você tem alterações não salvas. Fechar sem salvar?"
+    "confirmCloseWithoutSaving": "Você tem alterações não salvas. Fechar sem salvar?",
+    "trashReadOnly": "Na lixeira · somente leitura",
+    "versionReadOnly": "Versão anterior, somente leitura",
+    "highlightingOffTooLarge": "O realce de sintaxe está desativado para este arquivo: uma parte é grande demais para ser realçada sem travar a página.",
+    "raw": "Bruto",
+    "selectTheme": "Escolher o tema do editor"
   },
   "status": {
     "updated": "Atualizado com sucesso",
     "failed": "Falhou",
-    "passwordUpdated": "Senha atualizada",
-    "completePercent": "{percent}% concluído"
+    "passwordUpdated": "Senha atualizada"
   },
   "actions": {
     "newFolder": "Nova Pasta",
@@ -96,13 +108,25 @@
     "rename": "Renomear",
     "download": "Baixar",
     "downloadFolder": "Baixar pasta",
-    "extractZip": "Extrair ZIP",
     "compressToZip": "Comprimir em ZIP",
     "search": "Pesquisar",
     "sortBy": "Ordenar por",
     "addRule": "Adicionar regra",
     "clearAll": "Limpar tudo",
-    "cancelAll": "Cancelar tudo"
+    "cancelAll": "Cancelar tudo",
+    "newWordDocument": "Novo documento do Word",
+    "newSpreadsheet": "Nova planilha do Excel",
+    "newPresentation": "Nova apresentação do PowerPoint",
+    "newTextFile": "Novo arquivo de texto",
+    "newMarkdownFile": "Novo arquivo Markdown",
+    "newCsvFile": "Novo arquivo CSV",
+    "extractArchive": "Extrair arquivo compactado",
+    "extractArchiveIntoCurrentFolder": "Extrair na pasta atual",
+    "copyPath": "Copiar caminho",
+    "copyName": "Copiar nome",
+    "share": "Compartilhar",
+    "copied": "Copiado",
+    "newPdf": "Novo documento PDF"
   },
   "placeholders": {
     "email": "usuario{'@'}exemplo.com",
@@ -113,7 +137,9 @@
     "label": "Meus Arquivos Compartilhados",
     "path": "ex.: Fotos/Férias",
     "search": "Pesquisar arquivos e pastas…",
-    "volumeLabel": "ex.: Documentos, Projetos, Mídia"
+    "volumeLabel": "ex.: Documentos, Projetos, Mídia",
+    "totpCode": "123456",
+    "emailOrUsername": "nome{'@'}empresa.com ou nome"
   },
   "loading": {
     "default": "Carregando…",
@@ -153,12 +179,19 @@
     "labelRequired": "O rótulo é obrigatório",
     "pathRequired": "O caminho é obrigatório",
     "saveVolume": "Falha ao salvar volume",
-    "removeVolume": "Falha ao remover volume"
+    "removeVolume": "Falha ao remover volume",
+    "totpCodeRequired": "Digite o código.",
+    "identifierRequired": "É necessário um e-mail ou nome de usuário",
+    "unlockUser": "Não foi possível desbloquear a conta",
+    "oidcNotConfigured": "O Single Sign-On não está configurado neste servidor.",
+    "oidcProviderUnavailable": "Não foi possível iniciar o Single Sign-On. As configurações estão presentes; o log do servidor diz o que falhou.",
+    "totpCodeWrong": "Esse código não está certo."
   },
   "serverErrors": {
     "AUTH_REQUIRED": "Autenticação necessária",
-    "AUTH_INVALID_CREDENTIALS": "E-mail ou senha inválidos",
+    "AUTH_INVALID_CREDENTIALS": "Credenciais inválidas",
     "AUTH_ACCOUNT_LOCKED": "A conta está temporariamente bloqueada devido a tentativas de login com falha",
+    "AUTH_ACCOUNT_LOCKED_RETRY": "Conta bloqueada após muitas tentativas de login com falha. Tente novamente em {minutes} minuto | Conta bloqueada após muitas tentativas de login com falha. Tente novamente em {minutes} minutos",
     "AUTH_PASSWORD_INCORRECT": "A senha atual está incorreta",
     "VALIDATION_EMAIL_REQUIRED": "O e-mail é obrigatório",
     "VALIDATION_PASSWORD_REQUIRED": "A senha é obrigatória",
@@ -169,7 +202,12 @@
     "NOT_FOUND_USER": "Usuário não encontrado",
     "CONFLICT_USER_EXISTS": "O usuário já existe",
     "CONFLICT_PASSWORD_EXISTS": "Você já tem autenticação por senha",
-    "CONFLICT_SETUP_COMPLETE": "O aplicativo já está configurado"
+    "CONFLICT_SETUP_COMPLETE": "O aplicativo já está configurado",
+    "FORBIDDEN": "Acesso negado",
+    "NOT_FOUND": "Não encontrado",
+    "CONFLICT": "Conflito",
+    "RATE_LIMIT_EXCEEDED": "Solicitações demais",
+    "AUTH_INVALID_TOTP_CODE": "Esse código não está certo."
   },
   "titles": {
     "volumes": "Volumes",
@@ -190,7 +228,8 @@
     "locations": "Locais"
   },
   "i18n": {
-    "language": "Idioma"
+    "language": "Idioma",
+    "followBrowser": "Seguir o navegador"
   },
   "search": {
     "openShortcutTitle": "Abrir Pesquisa (⌘/Ctrl + K)",
@@ -198,7 +237,14 @@
     "searching": "Pesquisando…",
     "noMatches": "Nenhum resultado encontrado",
     "openFolder": "Abrir pasta",
-    "line": "linha"
+    "line": "linha",
+    "matchedByName": "nome",
+    "matchedByContent": "conteúdo",
+    "matchedByBoth": "nome e conteúdo",
+    "stoppedEarly": "Interrompida ao atingir o limite de tempo — isto é o que foi encontrado.",
+    "firstOnly": "Os primeiros {count} resultados. Refine a busca para ver mais.",
+    "tooShort": "Digite ao menos {count} caracteres.",
+    "showMore": "Ver mais"
   },
   "user": {
     "account": "Conta",
@@ -211,7 +257,14 @@
     "darkTheme": "Tema escuro"
   },
   "create": {
-    "createNew": "Novo"
+    "createNew": "Novo",
+    "documentName": "Nome do documento",
+    "createAndOpen": "Criar e abrir",
+    "defaultDocumentName": "Documento",
+    "defaultSpreadsheetName": "Planilha",
+    "defaultPresentationName": "Apresentação",
+    "defaultDataName": "Dados",
+    "documentFailed": "Não foi possível criar o documento"
   },
   "context": {
     "getInfo": "Obter Informações",
@@ -227,11 +280,33 @@
     "deleteMessage": {
       "single": "Tem certeza de que deseja excluir \"{name}\"? Esta ação não pode ser desfeita.",
       "multiple": "Tem certeza de que deseja excluir estes {count} itens? Esta ação não pode ser desfeita.",
-      "generic": "Nenhum item selecionado."
+      "generic": "Nenhum item selecionado.",
+      "trashSingle": "\"{name}\" irá para a lixeira, que o guarda por {count} dia. | \"{name}\" irá para a lixeira, que o guarda por {count} dias.",
+      "trashMultiple": "Estes {items} itens irão para a lixeira, que os guarda por {count} dia. | Estes {items} itens irão para a lixeira, que os guarda por {count} dias."
     },
     "checkingDeleteImpact": "Verificando compartilhamentos vinculados...",
     "deleteImpactUnavailable": "Não foi possível verificar os compartilhamentos vinculados. A exclusão ainda será aplicada pelo servidor.",
-    "deleteLinkedShares": "Este conteúdo tem {count} compartilhamento vinculado que será removido com ele. | Este conteúdo tem {count} compartilhamentos vinculados que serão removidos com ele."
+    "deleteLinkedShares": "Este conteúdo tem {count} compartilhamento vinculado que será removido com ele. | Este conteúdo tem {count} compartilhamentos vinculados que serão removidos com ele.",
+    "moveToTrash": "Mover para a lixeira",
+    "deletePermanently": "Excluir permanentemente",
+    "deleteSomePermanent": "{count} deles não pode ir para a lixeira e será excluído permanentemente. | {count} deles não podem ir para a lixeira e serão excluídos permanentemente.",
+    "trashReasons": {
+      "otherDevice": "Está em um disco diferente do da lixeira do seu volume.",
+      "tooLarge": "É maior que toda a lixeira do seu volume.",
+      "zoneRoot": "Um volume inteiro não pode ir para a própria lixeira.",
+      "zoneUnwritable": "Não é possível gravar na lixeira do seu volume.",
+      "noZone": "Não está em um local com lixeira.",
+      "disabled": "A lixeira está desativada."
+    },
+    "keptTitle": "Não foi possível mover para a lixeira",
+    "keptMessage": "Este item foi deixado onde estava. Excluí-lo permanentemente? | Estes {count} itens foram deixados onde estavam. Excluí-los permanentemente?",
+    "keptReasons": {
+      "tooLarge": "{size}, mais do que os {budget} que a lixeira do seu volume comporta."
+    },
+    "deleteLinkedSharesTrash": "Este conteúdo tem {count} link de compartilhamento. Ele deixa de funcionar enquanto o conteúdo estiver na lixeira e pode ser recuperado na restauração. | Este conteúdo tem {count} links de compartilhamento. Eles deixam de funcionar enquanto o conteúdo estiver na lixeira e podem ser recuperados na restauração.",
+    "deleteLinkedSharesPermanent": "Este conteúdo tem {count} link de compartilhamento, que será excluído definitivamente com ele. | Este conteúdo tem {count} links de compartilhamento, que serão excluídos definitivamente com ele.",
+    "deleteOnlyofficeOpen": "{names} está aberto no OnlyOffice. Ainda é possível excluí-lo, mas alterações não salvas podem ser perdidas. | {names} estão abertos no OnlyOffice. Ainda é possível excluí-los, mas alterações não salvas podem ser perdidas.",
+    "deleteVersionsNotice": "{count} versão anterior também é excluída ({size}); nenhuma cópia dela é mantida. | {count} versões anteriores também são excluídas ({size}); nenhuma cópia delas é mantida."
   },
   "folder": {
     "kind": "Tipo",
@@ -247,7 +322,13 @@
   },
   "volumes": {
     "quickAccess": "Acesso rápido",
-    "quickAccessEmpty": "Fixe pastas como favoritas para acessá-las rapidamente aqui."
+    "quickAccessEmpty": "Fixe pastas como favoritas para acessá-las rapidamente aqui.",
+    "readOnly": {
+      "label": "Somente leitura",
+      "storage": "Armazenamento somente leitura: este volume está montado como somente leitura, então nada pode ser gravado nele.",
+      "permission": "Não gravável: o servidor não tem permissão para gravar neste volume. Verifique a quem ele pertence no host.",
+      "access": "Somente leitura para a sua conta."
+    }
   },
   "drives": {
     "personal": "Pessoal",
@@ -262,7 +343,8 @@
     "home": "Início",
     "back": "Voltar",
     "forward": "Avançar",
-    "upOneFolder": "Subir uma pasta"
+    "upOneFolder": "Subir uma pasta",
+    "refresh": "Atualizar a pasta"
   },
   "view": {
     "list": "Exibição em lista",
@@ -279,7 +361,8 @@
     "emptyTitle": "Nenhum favorito ainda",
     "emptyDescription": "Selecione um diretório e toque na estrela na barra de ferramentas principal para fixá-lo aqui.",
     "editTitle": "Editar favorito",
-    "icon": "Ícone"
+    "icon": "Ícone",
+    "volumeUnavailable": "Volume indisponível — não está montado ou não está mais configurado."
   },
   "notifications": {
     "open": "Abrir notificações",
@@ -290,25 +373,47 @@
       "warning": "Avisos",
       "success": "Sucessos",
       "info": "Informações"
-    }
+    },
+    "copyDetails": "Copiar detalhes"
   },
   "spotlight": {
-    "hintWithin": "Digite para pesquisar dentro de"
+    "hintWithin": "Digite para pesquisar dentro de",
+    "hintPattern": "Use * e ? para filtrar nomes de arquivos, por exemplo *.ps1"
   },
   "download": {
-    "preparing": "Preparando download..."
+    "preparing": "Preparando download...",
+    "asZip": "Baixar como arquivo ZIP",
+    "asSeparateFiles": "Baixar como arquivos separados",
+    "chooseMode": "Escolher como baixar",
+    "confirmHeading": "Baixar {count} arquivos separadamente?",
+    "confirmBody": "Isso inicia {count} downloads de uma vez. Um arquivo ZIP seria um único arquivo.",
+    "confirmFolders": "As pastas selecionadas chegam como um único arquivo compactado nos dois casos.",
+    "confirmSeparate": "Baixar separadamente",
+    "confirmZip": "Baixar um ZIP",
+    "wrote": "{count} {items} gravados em {folder}",
+    "renamed": "Renomeados para não substituir nada: {names}",
+    "failed": "O download parou"
   },
   "clipboard": {
     "copying": "Copiando {count} {items}…",
+    "downloading": "Baixando {count} {items}…",
     "moving": "Movendo {count} {items}…",
-    "working": "Trabalhando…"
+    "working": "Trabalhando…",
+    "activeTasks": "{count} operações em andamento",
+    "compressing": "Compactando {name}…",
+    "copyingUnknown": "Copiando…",
+    "extracting": "Extraindo {name}…",
+    "movingUnknown": "Movendo…",
+    "perSecond": "{value}/s",
+    "reposition": "Voltar ao item ao terminar",
+    "restoring": "Restaurando {count} {items}…",
+    "restoringUnknown": "Restaurando…"
   },
   "upload": {
-    "toggleDetailsShow": "Mostrar detalhes",
-    "toggleDetailsHide": "Ocultar detalhes",
     "pauseUploads": "Pausar envios",
     "resumeUploads": "Retomar envios",
-    "uploads": "Enviando {count} {items}"
+    "uploads": "Enviando {count} {items}",
+    "finalizing": "Finalizando"
   },
   "info": {
     "aria": "Painel de informações",
@@ -319,7 +424,10 @@
     "dateTaken": "Data da Foto: {date}",
     "camera": "Câmera: {makeModel}",
     "lens": "Lente: {lens}",
-    "duration": "Duração: {seconds}s"
+    "duration": "Duração: {seconds}s",
+    "versions": "Versões",
+    "folderSizeExcluded": "Excluído",
+    "folderSizeExcludedHelp": "Este caminho está fora da indexação de tamanho de pastas."
   },
   "auth": {
     "preparing": "Preparando seu explorador…",
@@ -335,24 +443,22 @@
     "login": {
       "welcome": "Bem-vindo de volta",
       "subtitle": "Entre para acessar {appName}.",
-      "announcementConfirm": "Marcar como lido",
       "submit": "Entrar",
       "announcementMigration": {
         "title": "Atualizamos a forma de entrar",
-        "intro": "Agora você precisa usar seu novo nome de usuário no formato de e-mail.",
-        "bulletAddSuffix": "Adicione {suffix} ao seu nome de usuário",
-        "bulletPasswordSame": "Sua senha permanece a mesma.",
-        "bulletUpdateUsers": "Você pode atualizar usuários existentes no menu de Administração"
-      }
+        "intro": "Agora você precisa usar seu novo nome de usuário no formato de e-mail."
+      },
+      "totpCode": "Código",
+      "totpExplain": "Sua senha foi aceita. Digite o código do seu aplicativo autenticador, ou um dos seus códigos de recuperação.",
+      "totpSubmit": "Entrar",
+      "sessionExpired": "Sua sessão expirou. Entre novamente para continuar de onde parou.",
+      "totpBack": "Começar de novo"
     },
     "setup": {
       "headline": "Vamos configurar",
       "subtitle": "Crie sua conta de administrador para proteger e gerenciar seus arquivos.",
-      "formTitle": "Crie sua conta",
-      "formSubtitle": "Informe um e-mail e uma senha segura para concluir a configuração.",
       "submit": "Concluir Configuração",
       "bullets": {
-        "encryption": "Criptografia forte e ações amigáveis a auditoria.",
         "permissions": "Permissões granulares e gerenciamento de usuários.",
         "sso": "Suporte a Single Sign-On sem interrupções."
       }
@@ -362,7 +468,11 @@
     "confirmPassword": "Confirmar senha",
     "sso": {
       "continue": "Continuar com Single Sign-On"
-    }
+    },
+    "passkey": {
+      "signIn": "Entrar com uma chave de acesso"
+    },
+    "emailOrUsername": "E-mail ou nome de usuário"
   },
   "breadcrumb": {
     "volumes": "Volumes",
@@ -391,7 +501,17 @@
       "filesThumbnails": "Arquivos e Miniaturas",
       "security": "Segurança",
       "accessControl": "Controle de Acesso",
-      "adminUsers": "Gerenciamento de Usuários"
+      "adminUsers": "Gerenciamento de Usuários",
+      "trash": "Lixeira e versões",
+      "fileVersions": "Versões de arquivos",
+      "uploads": "Envios",
+      "accountTwoFactor": "Dois fatores",
+      "accountPasskeys": "Chaves de acesso",
+      "activity": "Registro de atividades",
+      "accountApiTokens": "Tokens de API",
+      "folderSize": "Tamanho das pastas",
+      "searchIndex": "Índice de busca",
+      "ffmpeg": "FFmpeg"
     },
     "about": {
       "subtitle": "Veja as informações de compilação deste aplicativo.",
@@ -399,26 +519,45 @@
       "appVersionHelp": "A versão em execução nesta compilação.",
       "gitCommit": "Commit Git",
       "gitCommitHelp": "Revisão do código-fonte embutida na compilação.",
-      "branch": "Branch",
-      "branchHelp": "Branch Git na compilação."
+      "branch": "Ramo",
+      "branchHelp": "Branch Git na compilação.",
+      "tools": {
+        "title": "Ferramentas opcionais",
+        "subtitle": "O que esta instância sabe fazer e o que uma ferramenta ausente acrescentaria. O servidor diz o mesmo no seu log ao iniciar.",
+        "installed": "Instalada",
+        "missing": "Não instalada",
+        "unused": "Não usada aqui",
+        "package": "Pacote",
+        "cannotOpen": "Não abre: {formats}",
+        "gives": {
+          "videoThumbnails": "Miniaturas de vídeos e imagens de fotos HEIC",
+          "mediaDetails": "Duração e faixas de áudio e vídeo",
+          "fastSearch": "Busca rápida dentro dos arquivos",
+          "pdfSearch": "O texto dos PDFs na busca",
+          "rawPreviews": "Pré-visualizações de fotos RAW",
+          "copyProgress": "Progresso em cópias e movimentações grandes",
+          "archives": "Navegar e extrair arquivos compactados além de .zip"
+        }
+      }
     },
     "branding": {
       "subtitle": "Personalize o nome e o logotipo do aplicativo exibidos em toda a interface.",
       "appName": "Nome do Aplicativo",
       "appNameHelp": "O nome exibido nos cabeçalhos, na página de login e no rodapé (máx. 100 caracteres).",
-      "appLogoUrl": "Imagem do Logotipo",
-      "appLogoUrlHelp": "Envie um arquivo SVG, PNG ou JPG para seu logotipo personalizado (máx. 2MB).",
       "logo": "Imagem do Logotipo",
       "logoHelp": "Envie um arquivo SVG, PNG ou JPG para seu logotipo personalizado (máx. 2MB).",
-      "uploading": "Enviando...",
-      "uploadSuccess": "Logotipo enviado com sucesso",
-      "uploadError": "Falha ao enviar o logotipo",
       "invalidFileType": "Envie um arquivo SVG, PNG ou JPG",
       "logoError": "O arquivo deve ser menor que 2MB",
-      "fileTooLargeForDataUri": "O arquivo é muito grande. Use uma imagem menor (menos de 500KB para melhores resultados)",
       "preview": "Pré-visualização",
       "showPoweredBy": "Exibir link de atribuição",
-      "showPoweredByHelp": "Exibir um link 'Desenvolvido por nextExplorer' no rodapé para apoiar o projeto"
+      "showPoweredByHelp": "Exibir um link 'Desenvolvido por nextExplorer' no rodapé para apoiar o projeto",
+      "defaultLogoSelected": "Logotipo padrão selecionado. Clique em Salvar para aplicar.",
+      "appNameRequired": "O nome do aplicativo não pode ficar vazio.",
+      "chooseLogo": "Escolher um logotipo",
+      "chooseAnotherLogo": "Escolher outro arquivo",
+      "logoSelected": "Novo logotipo selecionado. Clique em Salvar para aplicar.",
+      "saved": "Identidade visual salva.",
+      "saveFailed": "Não foi possível salvar a identidade visual: {reason}"
     },
     "userPreferences": {
       "title": "Preferências do Usuário",
@@ -427,6 +566,8 @@
       "showHiddenFilesHelp": "Exibir arquivos e pastas que correspondem aos padrões ocultos configurados ({patterns}) no navegador de arquivos.",
       "showThumbnails": "Mostrar miniaturas",
       "showThumbnailsHelp": "Exibir pré-visualizações em miniatura de imagens e vídeos no navegador de arquivos.",
+      "markdownOpensInEditor": "Abrir Markdown no editor",
+      "markdownOpensInEditorHelp": "Um duplo clique em um arquivo .md abre direto o editor, em vez da visualização.",
       "showSidebarFavorites": "Mostrar seção Favoritos",
       "showSidebarFavoritesHelp": "Exibir Favoritos na barra lateral esquerda.",
       "showSidebarShares": "Mostrar seção Compartilhamentos",
@@ -435,13 +576,40 @@
       "showSidebarToolsHelp": "Exibir Ferramentas na barra lateral esquerda.",
       "defaultShareExpiration": "Expiração padrão de compartilhamentos",
       "defaultShareExpirationHelp": "Defina um período de expiração padrão para novos compartilhamentos. Ao criar um compartilhamento, a data de expiração será pré-preenchida com base nesta configuração.",
+      "defaultShareExpirationInvalid": "Informe um número inteiro de pelo menos 1, ou limpe o campo para não ter expiração padrão.",
       "expirationValue": "Valor",
       "days": "Dias",
       "weeks": "Semanas",
       "months": "Meses",
       "skipHome": "Pular página inicial",
       "skipHomeHelp": "Redirecionar automaticamente para o primeiro volume ao visitar a página inicial. Se não definido, segue a configuração do servidor.",
-      "useEnvSetting": "Usar configuração do servidor"
+      "useEnvSetting": "Usar configuração do servidor",
+      "defaultView": "Visualização padrão",
+      "defaultViewHelp": "A visualização usada ao abrir uma pasta que ainda não tem uma memorizada.",
+      "viewGrid": "Grade",
+      "viewList": "Lista",
+      "viewColumns": "Colunas",
+      "viewPhotos": "Fotos",
+      "documentsOpenInNewTab": "Abrir documentos em uma nova aba",
+      "documentsOpenInNewTabHelp": "Abrir um arquivo lhe dá uma aba do navegador só dele, então vários continuam abertos enquanto você navega. Desligado, ele abre sobre a pasta como hoje.",
+      "downloadMode": "Baixar vários itens",
+      "downloadModeHelp": "O que acontece ao baixar mais de um item de uma vez. As pastas selecionadas sempre chegam como um único arquivo compactado.",
+      "downloadModeZip": "Um único arquivo ZIP",
+      "downloadModeSeparate": "Arquivos separados",
+      "showVersionMarks": "Marcar arquivos que têm versões",
+      "showVersionMarksHelp": "Uma pequena marca na lista nos arquivos com versões anteriores, com a quantidade. Clique nela para abrir o histórico.",
+      "languageHelp": "Salvo na sua conta, em todos os navegadores onde você entrar.",
+      "quickActions": "Menu de ações rápidas",
+      "quickActionsHelp": "Exibe um pequeno menu de ações ao passar o mouse sobre cada linha de arquivo ou pasta, e sobre o nome da pasta no topo.",
+      "quickActionsReorder": "Escolha e reordene as ações exibidas.",
+      "quickActionsMode": "Exibição do menu",
+      "quickActionsModeFull": "Todos os ícones ao passar o mouse",
+      "quickActionsModeCompact": "Ícone … (expande ao passar o mouse)",
+      "quickActionsPosition": "Onde ficam os ícones",
+      "quickActionsPositionHelp": "Alinhados a uma borda da coluna de nomes, ficam no mesmo lugar em todas as linhas; o espaço necessário fica reservado, com o ponteiro sobre a linha ou não.",
+      "quickActionsPositionAfter": "Depois do nome",
+      "quickActionsPositionStart": "No início da coluna de nomes",
+      "quickActionsPositionEnd": "No fim da coluna de nomes"
     },
     "thumbs": {
       "subtitle": "Personalize as pré-visualizações em miniatura de imagens e vídeos.",
@@ -452,13 +620,22 @@
       "maxDim": "Dimensão máxima",
       "maxDimHelp": "Maior lado em pixels. Padrão: 200.",
       "concurrency": "Geração paralela",
-      "concurrencyHelp": "Número de miniaturas geradas simultaneamente (1–50). Padrão: 10."
+      "concurrencyHelp": "Número de miniaturas geradas simultaneamente (1–50). Padrão: 10.",
+      "invalid": "Verifique os valores: qualidade de 1 a 100, dimensão máxima de 64 a 1024 px, geração paralela de 1 a 50."
+    },
+    "ffmpeg": {
+      "title": "FFmpeg",
+      "subtitle": "Escolha os executáveis do FFmpeg e do FFprobe usados nas miniaturas e nos metadados de mídia.",
+      "containerPathHelp": "Informe caminhos absolutos visíveis dentro do contêiner do aplicativo. Para usar binários do host, monte-os no contêiner primeiro.",
+      "ffmpegPath": "Caminho do executável do FFmpeg",
+      "ffprobePath": "Caminho do executável do FFprobe",
+      "invalid": "Os dois caminhos devem ser caminhos absolutos do contêiner e começar com /.",
+      "defaultHelp": "Deixe um caminho vazio para usar FFMPEG_PATH ou FFPROBE_PATH do ambiente e, depois, o executável incluído. As alterações valem imediatamente."
     },
     "security": {
       "subtitle": "Controle o acesso ao aplicativo.",
       "enable": "Ativar autenticação",
-      "enableHelp": "Quando desativada, qualquer pessoa pode acessar seus arquivos.",
-      "confirmDisable": "Desativar a autenticação tornará seus arquivos publicamente acessíveis. Continuar?"
+      "enableHelp": "Quando desativada, qualquer pessoa pode acessar seus arquivos."
     },
     "access": {
       "subtitle": "Defina permissões por pasta: leitura-escrita, somente leitura ou ocultas.",
@@ -467,7 +644,18 @@
       "recursive": "Recursivo",
       "readWrite": "Leitura e Escrita",
       "readOnly": "Somente Leitura",
-      "hidden": "Oculto"
+      "hidden": "Oculto",
+      "adminNote": "Cada regra diz se se aplica aos administradores. Sem isso, uma regra “Somente leitura” os deixa escrever e uma regra “Oculto” também esconde a pasta deles.",
+      "applyToAdmins": "Aplicar todas as regras aos administradores",
+      "applyToAdminsHint": "Ligado, nenhuma regra deixa um administrador passar — a caixa de cada regra é ignorada.",
+      "appliesToAdmins": "Aplica-se aos administradores",
+      "browse": "Escolher uma pasta",
+      "pathInvalid": "Este caminho não está dentro de nenhum volume, então a regra nunca será aplicada.",
+      "pathMissing": "Não há pasta neste caminho. Uma regra usa o caminho como o NextExplorer o mostra, começando pelo nome do volume.",
+      "useSuggestion": "Usar {path}",
+      "title": "Acesso",
+      "pickFolderTitle": "Pasta desta regra",
+      "appliesToAdminsHint": "Sujeitar também os administradores a esta regra."
     },
     "comingSoon": {
       "subtitle": "Esta seção de configurações está em construção. Aguarde!"
@@ -478,8 +666,8 @@
       "new": "Nova senha",
       "confirm": "Confirmar nova senha",
       "update": "Atualizar Senha",
-      "success": "Senha atualizada com sucesso.",
-      "validation": "Preencha todos os campos; a nova senha deve ter pelo menos 6 caracteres e coincidir com a confirmação."
+      "validation": "Preencha todos os campos; a nova senha deve ter pelo menos 6 caracteres e coincidir com a confirmação.",
+      "successOtherSessionsEnded": "Senha atualizada. Todas as outras sessões desta conta foram encerradas."
     },
     "users": {
       "subtitle": "Gerencie usuários, funções e credenciais de acesso.",
@@ -489,11 +677,9 @@
       "grantAdmin": "Conceder admin",
       "grantAdminHint": "Concede acesso total a todas as configurações e usuários.",
       "displayName": "Nome de Exibição",
-      "makeAdmin": "Tornar admin",
       "resetPassword": "Definir/Redefinir senha",
       "removeUser": "Remover usuário",
       "promptNewPassword": "Digite uma nova senha para {user} (mín. 6 caracteres):",
-      "editUser": "Editar usuário",
       "volumes": "Volumes",
       "assignedVolumes": "Volumes Atribuídos",
       "addVolume": "Adicionar Volume",
@@ -513,7 +699,10 @@
       "selectedPath": "Selecionado",
       "volumePath": "Caminho do Volume",
       "pathCannotChange": "O caminho não pode ser alterado após a criação. Remova este volume e crie um novo se necessário.",
-      "accessMode": "Modo de Acesso"
+      "accessMode": "Modo de Acesso",
+      "noUsers": "Nenhum usuário disponível",
+      "lockedBadge": "Bloqueado",
+      "lockedUntil": "Bloqueado até {time}"
     },
     "userDetails": {
       "profileTab": "Perfil",
@@ -536,17 +725,344 @@
       "localPasswordNotExistHint": "O usuário não tem uma senha local definida.",
       "setLocalPassword": "Definir Senha",
       "resetLocalPassword": "Redefinir Senha",
-      "sso": "Single Sign-On (OIDC)",
+      "sso": "Login único (OIDC)",
       "oidcProvider": "Provedor OIDC",
       "oidcLinkedProfile": "Perfil Vinculado",
-      "noOidcProfileMessage": "Nenhum perfil OIDC vinculado a esta conta."
+      "noOidcProfileMessage": "Nenhum perfil OIDC vinculado a esta conta.",
+      "signInLock": "Bloqueio de login",
+      "lockedHint": "Bloqueado após muitas tentativas de login com falha. Será liberado automaticamente às {time}.",
+      "notLockedHint": "Não bloqueado. Muitas tentativas de login com falha bloqueiam uma conta por um tempo.",
+      "unlock": "Desbloquear agora"
+    },
+    "trash": {
+      "title": "Lixeira e versões",
+      "subtitle": "Itens excluídos e versões anteriores dos arquivos ficam em um espaço reservado no próprio volume e são removidos ao fim da retenção ou quando esse espaço é necessário.",
+      "enabled": "Enviar itens excluídos para a lixeira",
+      "enabledHelp": "Desativada, excluir apaga permanentemente. Itens que já estão na lixeira continuam expirando.",
+      "retentionDays": "Retenção (dias)",
+      "retentionHelp": "De 1 a 3650 dias.",
+      "maxPercent": "Parte de cada volume (%)",
+      "maxPercentHelp": "O máximo que a lixeira pode ocupar em um volume, de 1 a 90 %.",
+      "maxSize": "Limite de tamanho por volume (GiB)",
+      "maxSizeHelp": "Opcional. Vale o menor entre a parte e o limite.",
+      "maxSizeNone": "Sem limite",
+      "invalid": "Verifique os valores: retenção de 1 a 3650 dias, parte de 1 a 90 %, um tamanho positivo ou nenhum.",
+      "saveFailed": "Não foi possível salvar as configurações.",
+      "environmentNote": "Os valores padrão vêm de TRASH_ENABLED, TRASH_RETENTION_DAYS, TRASH_MAX_PERCENT e TRASH_MAX_SIZE.",
+      "zonesTitle": "Lixeira por volume",
+      "zonesSubtitle": "Cada volume guarda sua lixeira em uma pasta oculta .nextexplorer na raiz, então excluir nunca copia nada.",
+      "zonesEmpty": "Nada foi excluído para uma lixeira ainda.",
+      "zonesFailed": "Não foi possível carregar a lixeira dos volumes.",
+      "verifyFailed": "Não foi possível executar a verificação.",
+      "maintenanceFailed": "Não foi possível executar a manutenção.",
+      "zoneKind": {
+        "personal": "Pasta pessoal de {name}",
+        "userVolume": "Volume atribuído {name}"
+      },
+      "available": "Disponível",
+      "unavailable": {
+        "missing": "Não montado ou removido",
+        "replaced": "Outro disco no lugar",
+        "unreadable": "Ilegível"
+      },
+      "usage": "{used} de {budget}",
+      "zoneSummary": "{count} item, {used} de {budget} | {count} itens, {used} de {budget}",
+      "noBudget": "sem limite",
+      "lastPass": "Última manutenção:",
+      "lastPassPurged": "{count} removido | {count} removidos",
+      "never": "ainda não",
+      "verify": "Verificar",
+      "verifying": "Verificando…",
+      "verifyOk": "A lixeira de cada volume está consistente.",
+      "verifyIssues": "{count} problema encontrado | {count} problemas encontrados",
+      "runMaintenance": "Executar manutenção agora",
+      "running": "Em andamento…",
+      "events": {
+        "title": "Registro",
+        "evicted": "\"{name}\" removido antes do fim da retenção para liberar espaço",
+        "adopted": "\"{name}\" recuperado após uma interrupção",
+        "lost": "O conteúdo de \"{name}\" estava faltando",
+        "failed": "\"{name}\" não pôde ser removido",
+        "breaker": "Itens demais faltando de uma vez: nada foi alterado",
+        "forgotten": "\"{name}\" esquecido por um administrador",
+        "versionEvicted": "Uma versão de \"{name}\" removida para liberar espaço",
+        "versionFailed": "Não foi possível remover uma versão",
+        "versionLost": "O conteúdo de uma versão estava faltando",
+        "versionTooLarge": "\"{name}\" é maior que todo o espaço: o que ele substituiu não foi guardado",
+        "versionsBreaker": "Versões demais faltando de uma vez: nada foi alterado"
+      },
+      "zoneVersions": "{count} versão, {size} | {count} versões, {size}",
+      "versions": {
+        "title": "Versões de arquivos",
+        "subtitle": "Cada salvamento guarda o que substitui, sem copiar, no mesmo espaço reservado da lixeira. Versões antigas são espaçadas com o tempo.",
+        "enabled": "Guardar versões anteriores dos arquivos",
+        "enabledHelp": "Independente da lixeira. Desativado, os salvamentos não guardam nada novo; as versões existentes permanecem até expirarem ou serem excluídas.",
+        "keepAllHours": "Guardar todas as versões (horas)",
+        "hourlyDays": "Depois uma por hora (dias)",
+        "dailyDays": "Depois uma por dia (dias)",
+        "maxPerFile": "Máximo de versões por arquivo",
+        "sessionCheckpointMinutes": "Ponto de controle do Office (minutos)",
+        "tiersHelp": "Depois dessas faixas, uma versão por semana é guardada. Uma sessão de edição do Office deixa uma versão, mais um ponto de controle no máximo nesse intervalo. Versões fixadas escapam do espaçamento e do limite por arquivo.",
+        "invalid": "Verifique os valores: 1 a 720 horas, 1 a 365 dias por hora, 1 a 3650 dias por dia, 1 a 1000 versões por arquivo, um ponto de controle de 1 a 1440 minutos.",
+        "sharedSpace": "Versões e lixeira dividem o espaço reservado de cada volume. Quando falta espaço, saem primeiro as versões antigas, depois os itens da lixeira, depois a última versão de cada arquivo e, por fim, as versões fixadas.",
+        "environmentNote": "Os padrões vêm de VERSIONS_ENABLED, VERSIONS_KEEP_ALL_HOURS, VERSIONS_HOURLY_DAYS, VERSIONS_DAILY_DAYS, VERSIONS_MAX_PER_FILE e VERSIONS_SESSION_CHECKPOINT_MINUTES."
+      }
+    },
+    "fileVersions": {
+      "title": "Versões de arquivos",
+      "intro": "Todos os arquivos com versões anteriores, onde quer que estejam, e o espaço que ocupam. Aparecem aqui caminhos de todos os espaços, inclusive pastas pessoais — por isso esta página é só para administradores.",
+      "search": "O caminho contém",
+      "searchPlaceholder": "Parte de um nome ou de uma pasta",
+      "zone": "Espaço",
+      "anyZone": "Todos os espaços",
+      "state": "Situação",
+      "anyState": "Todos",
+      "sort": "Ordenar por",
+      "sortBytes": "Espaço ocupado",
+      "sortCount": "Número de versões",
+      "sortNewest": "Versão mais recente",
+      "sortPath": "Caminho",
+      "summary": "{files} arquivos, {versions} versões, {size}",
+      "file": "Arquivo",
+      "count": "Versões",
+      "size": "Tamanho",
+      "newest": "Mais recente",
+      "states": {
+        "live": "Presente",
+        "trashed": "Na lixeira",
+        "orphaned": "Desaparecido"
+      },
+      "zoneKinds": {
+        "volume": "Volume {name}",
+        "personal": "Pasta pessoal {name}",
+        "user-volume": "Volume atribuído {name}"
+      },
+      "zoneUnknown": "Espaço desconhecido",
+      "pinned": "Fixada",
+      "unavailable": "Volume indisponível",
+      "deleteAll": "Excluir o histórico",
+      "deleteSelected": "Excluir {count} versão | Excluir {count} versões",
+      "deleteForGood": "Excluir definitivamente",
+      "confirmAllTitle": "Excluir todas as versões de {name}?",
+      "confirmSomeTitle": "Excluir {count} versão? | Excluir {count} versões?",
+      "confirmMessage": "Esse conteúdo é removido do disco. O arquivo em si não é tocado, e nada disso pode ser desfeito.",
+      "none": "Nenhum arquivo tem versões anteriores.",
+      "loadFailed": "Não foi possível ler a lista.",
+      "detailFailed": "Não foi possível ler este histórico.",
+      "deleteFailed": "Não foi possível excluir as versões.",
+      "previous": "Anterior",
+      "next": "Próximo",
+      "range": "{from} a {to} de {total}",
+      "deleteSelectedNone": "Excluir as versões marcadas"
+    },
+    "uploads": {
+      "title": "Envios",
+      "chunkSize": "Tamanho das partes",
+      "chunkSizeHelp": "Tamanho máximo de cada requisição de envio. Mantenha-o abaixo do limite do seu proxy reverso. Partes menores (8–32 MiB) dão um progresso mais fluido; partes muito grandes avançam aos saltos (o servidor grava cada parte antes da seguinte).",
+      "subtitle": "Configure como os arquivos são enviados ao servidor.",
+      "chunkedEnable": "Ativar envio em partes",
+      "chunkedEnableHelp": "Usar o TUS para enviar arquivos grandes por meio de várias requisições menores.",
+      "chunkSizeInvalid": "Informe um tamanho de parte de 1 a {max} MiB.",
+      "autoFallback": "Recorrer automaticamente ao envio em partes",
+      "autoFallbackHelp": "Se um envio direto falhar (um proxy reverso recusando o tamanho do corpo), passa automaticamente ao envio em partes com um tamanho seguro, memorizado por endereço. Prático para continuar direto na rede local e passar às partes atrás do proxy.",
+      "autoFallbackActive": "Tamanho das partes memorizado para este endereço: {size} MiB.",
+      "autoFallbackReset": "Redefinir (voltar ao envio direto)"
+    },
+    "twoFactor": {
+      "title": "Autenticação em dois fatores",
+      "intro": "Um código do seu celular, além da sua senha.",
+      "notLocalUser": "Esta conta entra por um provedor de identidade, que é onde o segundo fator deve ser configurado.",
+      "off": "A autenticação em dois fatores está desligada nesta conta.",
+      "on": "A autenticação em dois fatores está ligada.",
+      "turnOn": "Ligar",
+      "turnOff": "Desligar",
+      "scan": "Escaneie isto com o seu aplicativo autenticador.",
+      "orType": "Ou digite este segredo no aplicativo:",
+      "qrLabel": "QR code para o seu aplicativo autenticador",
+      "codeLabel": "Código do aplicativo",
+      "confirm": "Confirmar",
+      "confirmPassword": "Sua senha",
+      "codesTitle": "Códigos de recuperação",
+      "codesExplain": "Guarde-os em outro lugar que não o celular. Cada um serve para uma entrada, para o dia em que o celular não estiver por perto. Eles aparecem agora e nunca mais.",
+      "copyCodes": "Copiar",
+      "copied": "Copiado.",
+      "codesLeft": "Resta um código de recuperação | Restam {count} códigos de recuperação",
+      "newCodesButton": "Gerar novos códigos",
+      "newCodes": "Novos códigos de recuperação gerados. Os anteriores não funcionam mais.",
+      "turnedOn": "A autenticação em dois fatores está ligada.",
+      "turnedOff": "A autenticação em dois fatores está desligada.",
+      "loadFailed": "Não foi possível ler as configurações de dois fatores desta conta.",
+      "startFailed": "Não foi possível começar a configurar o segundo fator.",
+      "confirmFailed": "Esse código não está certo.",
+      "codesFailed": "Não foi possível gerar novos códigos de recuperação.",
+      "disableFailed": "Não foi possível desligar a autenticação em dois fatores.",
+      "wrongPassword": "Essa senha não está certa."
+    },
+    "passkeys": {
+      "title": "Chaves de acesso",
+      "intro": "Entre com sua digital, seu rosto ou o PIN do dispositivo, em vez de uma senha.",
+      "notLocalUser": "Esta conta entra por um provedor de identidade, que é onde ficam suas chaves de acesso.",
+      "unavailable": "Chaves de acesso exigem uma página segura.",
+      "unavailableHelp": "Esta página não é servida por https, então o navegador não tem a que vincular uma chave. Acesse o servidor por https, ou por localhost, para adicionar uma.",
+      "none": "Ainda não há chaves de acesso nesta conta.",
+      "nameLabel": "Adicionar uma chave de acesso",
+      "namePlaceholder": "Dê um nome, para reconhecê-la depois",
+      "add": "Adicionar chave de acesso",
+      "added": "{name} adicionada.",
+      "addedOn": "Adicionada em {when}",
+      "lastUsed": "usada pela última vez em {when}",
+      "neverUsed": "nunca usada",
+      "synced": "sincronizada entre seus dispositivos",
+      "rename": "Renomear",
+      "renamePrompt": "Um nome para esta chave de acesso",
+      "renamed": "Renomeada.",
+      "renameFailed": "Não foi possível renomear esta chave de acesso.",
+      "remove": "Remover",
+      "removed": "{name} removida.",
+      "removeFailed": "Não foi possível remover esta chave de acesso.",
+      "confirmPassword": "Sua senha, para mudar como você entra",
+      "loadFailed": "Não foi possível ler as chaves de acesso desta conta.",
+      "addFailed": "Não foi possível adicionar esta chave de acesso.",
+      "cancelled": "Nada foi adicionado: o navegador foi fechado ou demorou demais.",
+      "alreadyHere": "Este dispositivo já tem uma chave de acesso para esta conta."
+    },
+    "activity": {
+      "title": "Registro de atividades",
+      "intro": "Quem fez o quê, quando e de onde. Desligado até você pedir.",
+      "enabled": "Registrar atividade",
+      "enabledHelp": "Entradas, downloads, envios, exclusões, restaurações, compartilhamentos e mudanças de conta são anotados enquanto isto estiver ligado. O que veio antes não está aqui.",
+      "retention": "Guardar por (dias)",
+      "retentionInvalid": "Entre 1 e 3650 dias.",
+      "saveFailed": "Não foi possível salvar estas configurações.",
+      "off": "O registro está desligado: nada está sendo anotado.",
+      "none": "Nada registrado ainda.",
+      "loadFailed": "Não foi possível ler o registro.",
+      "clearFailed": "Não foi possível esvaziar o registro.",
+      "filterAction": "Tipo",
+      "anyAction": "Qualquer tipo",
+      "filterText": "Buscar",
+      "filterTextPlaceholder": "Um nome ou um caminho",
+      "refresh": "Atualizar",
+      "clear": "Esvaziar o registro",
+      "more": "Mostrar mais",
+      "when": "Quando",
+      "who": "Quem",
+      "what": "O quê",
+      "target": "Em",
+      "from": "De",
+      "refused": "recusado",
+      "actions": {
+        "sign-in": "Entrou",
+        "sign-out": "Saiu",
+        "account-password": "Senha alterada",
+        "account-two-factor": "Segundo fator alterado",
+        "account-passkey": "Chave de acesso alterada",
+        "admin-user": "Conta alterada",
+        "admin-settings": "Configurações alteradas",
+        "admin-activity-clear": "Registro limpo",
+        "share-create": "Compartilhamento criado",
+        "share-delete": "Compartilhamento excluído",
+        "share-download": "Baixado por um link",
+        "share-upload": "Enviado por um link",
+        "file-download": "Baixado",
+        "file-upload": "Enviado",
+        "file-delete": "Movido para a lixeira",
+        "file-restore": "Restaurado",
+        "file-purge": "Excluído definitivamente",
+        "versions-purge": "Versões excluídas",
+        "account-token": "Token de API alterado"
+      }
+    },
+    "apiTokens": {
+      "title": "Tokens de API",
+      "intro": "Um token permite que um script use este servidor em seu nome, sem a sua senha e sem navegador. Cada um é revogado separadamente, e nenhum pode alterar a sua conta nem administrar o servidor.",
+      "none": "Nenhum token nesta conta.",
+      "newToken": "Novo token",
+      "nameLabel": "Nome",
+      "namePlaceholder": "Script de backup",
+      "scopeLabel": "O que ele pode fazer",
+      "scopeRead": "Somente leitura",
+      "scopeWrite": "Leitura e escrita",
+      "scopeReadHelp": "Pode listar, pesquisar e baixar. Não pode alterar nada.",
+      "scopeWriteHelp": "Pode fazer com os arquivos o que você faz: enviar, mover, renomear, excluir.",
+      "expiryLabel": "Quanto tempo dura",
+      "expiryNever": "Até ser revogado",
+      "expiryDays": "{days} dias",
+      "confirmPassword": "Sua senha",
+      "create": "Emitir token",
+      "rename": "Renomear",
+      "revoke": "Revogar",
+      "renamePrompt": "Um novo nome para este token",
+      "renamed": "O token foi renomeado.",
+      "revoked": "{name} foi revogado e para de funcionar agora.",
+      "revokeConfirm": "Revogar {name}? Tudo que o usa para de funcionar imediatamente.",
+      "shownOnce": "Este é o token. Ele é mostrado uma vez e não poderá ser lido de novo — copie agora.",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "useIt": "Envie-o como este cabeçalho em cada requisição.",
+      "createdOn": "Emitido em {when}",
+      "lastUsed": "último uso em {when} a partir de {from}",
+      "neverUsed": "nunca usado",
+      "unknownAddress": "um endereço desconhecido",
+      "expiresOn": "expira em {when}",
+      "neverExpires": "sem expiração",
+      "limits": "Um token nunca vale mais que a conta a que pertence, e sempre menos: não pode alterar sua senha, adicionar uma chave de acesso, emitir outro token, administrar o servidor nem abrir um terminal. Até 50 tokens por conta.",
+      "loadFailed": "Não foi possível carregar os tokens.",
+      "createFailed": "Não foi possível emitir o token.",
+      "renameFailed": "Não foi possível renomear o token.",
+      "revokeFailed": "Não foi possível revogar o token."
+    },
+    "folderSize": {
+      "title": "Tamanho das pastas",
+      "subtitle": "Exclua caminhos do cálculo e da indexação do tamanho das pastas.",
+      "running": "Medir o tamanho das pastas",
+      "runningHelp": "Mede as pastas em segundo plano, para que o tamanho delas apareça na lista.",
+      "modeOff": "Desativado",
+      "modeShallow": "Apenas os próprios arquivos",
+      "modeFull": "Tudo o que contêm",
+      "environment": "Exclusões definidas pelo ambiente",
+      "additional": "Exclusões adicionais",
+      "placeholder": "Stacks/docker/overlay2",
+      "none": "Nenhum caminho configurado"
+    },
+    "searchIndex": {
+      "title": "Índice de busca",
+      "subtitle": "Exclua caminhos da indexação de conteúdo.",
+      "running": "Manter um índice de busca",
+      "runningHelp": "Lê os documentos do volume em segundo plano, para que uma busca no conteúdo deles responda na hora.",
+      "environment": "Exclusões definidas pelo ambiente",
+      "additional": "Exclusões adicionais",
+      "none": "Nenhum caminho configurado",
+      "placeholder": "Backups/2024"
+    },
+    "featureOff": {
+      "title": "Este recurso não está ativado",
+      "howTo": "Para ativá-lo, defina {setting} e reinicie o contêiner.",
+      "kept": "O que você configurar aqui é salvo e passa a valer assim que o recurso for ativado.",
+      "useSwitch": "Ative-a com o interruptor acima.",
+      "locked": "Definido por {variable} no ambiente: isso é decidido lá, não aqui."
     }
+  },
+  "mediaPreview": {
+    "audioTrack": "Faixa de áudio",
+    "audioTrackNumbered": "Faixa {number}",
+    "close": "Fechar a visualização",
+    "download": "Baixar a mídia",
+    "imageLoadError": "Não foi possível exibir esta imagem.",
+    "next": "Próxima mídia",
+    "noPlayableAudio": "A trilha sonora deste vídeo está em {codecs}, que seu navegador não consegue decodificar. A imagem toca; o som não.",
+    "noPlayableVideo": "Este vídeo está em {codecs}, que seu navegador não consegue decodificar. Abra-o em um reprodutor de mídia.",
+    "previous": "Mídia anterior",
+    "rotateLeft": "Girar para a esquerda",
+    "rotateRight": "Girar para a direita",
+    "subtitleExternal": "arquivo externo",
+    "subtitleForced": "forçadas",
+    "zoomIn": "Ampliar",
+    "zoomOut": "Reduzir"
   },
   "share": {
     "sharedWithMe": "Compartilhado Comigo",
-    "sharedWithMeDescription": "Arquivos e pastas que outras pessoas compartilharam com sua conta.",
     "sharedByMe": "Compartilhado Por Mim",
-    "sharedByMeDescription": "Links e pastas que você compartilhou com outras pessoas.",
     "shareCreated": "Compartilhamento Criado",
     "createShareLink": "Criar Link de Compartilhamento",
     "shareLink": "Link de Compartilhamento",
@@ -560,7 +1076,8 @@
       "auto": "Automático",
       "inline": "Visualizar",
       "raw": "Bruto",
-      "download": "Baixar"
+      "download": "Baixar",
+      "editor": "Editor"
     },
     "shareLinkCreatedSuccess": "Link de compartilhamento criado com sucesso!",
     "access": "Modo de Acesso",
@@ -599,21 +1116,306 @@
     "signInToAccess": "Entrar para Acessar",
     "requiresAuthentication": "Este compartilhamento requer autenticação.",
     "noSharedItemsToShow": "Nenhum item compartilhado para exibir",
-    "noSharedItemsYet": "Quando alguém compartilhar arquivos ou pastas com você, eles aparecerão aqui.",
-    "adjustFilters": "Ajuste seus filtros ou limpe a pesquisa para ver mais itens.",
     "filterByNameOrPath": "Filtrar por nome ou caminho",
     "sharedBy": "Compartilhado pelo proprietário",
     "lastAccessed": "Último acesso",
     "created": "Criado",
-    "noMyShares": "Você ainda não criou nenhum compartilhamento.",
-    "noMySharesDescription": "Crie um compartilhamento de qualquer arquivo ou pasta para vê-lo listado aqui.",
-    "mySharesCount": "{count} link de compartilhamento ativo | {count} links de compartilhamento ativos",
     "confirmDeleteShare": "Remover este compartilhamento? As pessoas com o link não terão mais acesso.",
     "deleteShareTitle": "Remover compartilhamento?",
     "deleteShareMessage": "As pessoas com este link não poderão mais acessar o item compartilhado.",
     "removeShare": "Remover compartilhamento",
     "sharedWithAnyone": "Todos",
-    "sharedWithUsers": "{count} usuário | {count} usuários",
-    "expiresNever": "Nunca"
+    "expiresNever": "Nunca",
+    "creating": "Criando…",
+    "expires": "Expira em",
+    "loadingUsers": "Carregando usuários...",
+    "password": "Senha",
+    "protected": "Protegido",
+    "sharedWith": "Compartilhado com",
+    "editShareLink": "Editar o link de compartilhamento",
+    "saveShare": "Salvar as alterações",
+    "advancedPermissions": "Avançado",
+    "allowDelete": "Permitir excluir arquivos",
+    "allowCreateFolder": "Permitir criar pastas",
+    "allowCreateFile": "Permitir criar arquivos",
+    "allowUpload": "Permitir enviar arquivos e pastas",
+    "activity": "Atividade",
+    "activityDetails": "Detalhes da atividade",
+    "accesses": "acessos",
+    "downloads": "downloads",
+    "accessCount": "Número de acessos",
+    "downloadCount": "Número de downloads",
+    "lastAccessIp": "IP do último acesso",
+    "lastDownloaded": "Último download",
+    "lastDownloadIp": "IP do último download",
+    "noActivity": "Nunca",
+    "noIpRecorded": "Nenhum IP registrado",
+    "allowDownload": "Permitir download",
+    "allowDownloadHelp": "Desative para que os arquivos possam ser lidos sem que se leve uma cópia.",
+    "versionsVisible": "Mostrar versões dos arquivos",
+    "versionsVisibleHelp": "Quem usa este compartilhamento vê as versões anteriores dos arquivos e pode restaurá-las se tiver permissão para editar.",
+    "versionsDownload": "Permitir baixar versões"
+  },
+  "trash": {
+    "title": "Lixeira",
+    "menu": "Lixeira",
+    "subtitle": "Os itens são excluídos permanentemente {count} dia após serem apagados. | Os itens são excluídos permanentemente {count} dias após serem apagados.",
+    "empty": "A lixeira está vazia.",
+    "disabled": "A lixeira está desativada: excluir apaga permanentemente. O que ainda está aqui pode ser restaurado.",
+    "unavailable": "Volume indisponível",
+    "expiresToday": "Hoje",
+    "expiresIn": "Em {count} dia | Em {count} dias",
+    "columns": {
+      "originalLocation": "Local original",
+      "deletedBy": "Excluído por",
+      "deletedAt": "Excluído em",
+      "expires": "Remoção",
+      "modified": "Modificado"
+    },
+    "location": {
+      "personal": "Pasta pessoal",
+      "unknown": "Desconhecido"
+    },
+    "deletedBy": {
+      "you": "Você",
+      "shareLink": "Link de compartilhamento",
+      "unknown": "Desconhecido"
+    },
+    "actions": {
+      "restore": "Restaurar",
+      "deletePermanently": "Excluir permanentemente",
+      "empty": "Esvaziar lixeira",
+      "openLocation": "Abrir local original",
+      "selectAll": "Selecionar tudo",
+      "select": "Selecionar {name}",
+      "open": "Abrir {name}",
+      "restoreFolder": "Restaurar a pasta inteira",
+      "restoreTo": "Restaurar em…"
+    },
+    "confirm": {
+      "deleteTitle": "Excluir permanentemente?",
+      "deleteMessage": "Este item será excluído permanentemente. Esta ação não pode ser desfeita. | Estes {count} itens serão excluídos permanentemente. Esta ação não pode ser desfeita.",
+      "emptyTitle": "Esvaziar a lixeira?",
+      "emptyMessage": "Tudo o que está na sua lixeira será excluído permanentemente. Esta ação não pode ser desfeita."
+    },
+    "results": {
+      "restored": "{count} item restaurado | {count} itens restaurados",
+      "restoredTo": "Restaurado em {path}",
+      "renamed": "\"{name}\" foi restaurado como \"{newName}\": o nome já estava em uso.",
+      "notRestored": "{count} item não pôde ser restaurado | {count} itens não puderam ser restaurados",
+      "deleted": "{count} item excluído permanentemente | {count} itens excluídos permanentemente",
+      "notDeleted": "{count} item não pôde ser excluído | {count} itens não puderam ser excluídos",
+      "emptied": "Lixeira esvaziada: {count} item removido | Lixeira esvaziada: {count} itens removidos",
+      "leftBehind": "{count} item não pôde ser removido e continua lá. | {count} itens não puderam ser removidos e continuam lá."
+    },
+    "reasons": {
+      "forbidden": "você não pode mais gravar onde ele estava.",
+      "blocked": "algo agora ocupa o lugar da sua pasta.",
+      "unavailable": "seu volume não está disponível.",
+      "busy": "já está sendo processado.",
+      "lost": "seu conteúdo havia desaparecido.",
+      "notFound": "não está mais na lixeira.",
+      "unknown": "não foi possível processá-lo.",
+      "destinationForbidden": "você não pode criar itens nessa pasta.",
+      "invalidDestination": "essa pasta não pode recebê-lo."
+    },
+    "errors": {
+      "load": "Não foi possível carregar a lixeira.",
+      "action": "A lixeira não conseguiu fazer isso.",
+      "loadFolder": "Não foi possível abrir esta pasta."
+    },
+    "browse": {
+      "breadcrumb": "Local na lixeira",
+      "deletedFrom": "Excluído de {location} em {date}",
+      "hint": "Restaurar devolve cada item selecionado ao seu lugar dentro desta pasta. O restante permanece na lixeira.",
+      "empty": "Esta pasta está vazia.",
+      "back": "Voltar para a lixeira"
+    },
+    "contextMenu": {
+      "label": "Ações para {name}",
+      "labelMany": "Ações para {count} itens",
+      "open": "Abrir",
+      "preview": "Pré-visualizar"
+    },
+    "shares": {
+      "badge": "Compartilhado",
+      "badgeTitle": "{count} link de compartilhamento, desativado enquanto está na lixeira | {count} links de compartilhamento, desativados enquanto estão na lixeira",
+      "chooseTitle": "O que fazer com os links de compartilhamento?",
+      "chooseMessage": "{count} link de compartilhamento pertencia ao que você está restaurando. Ele não funciona desde a exclusão. | {count} links de compartilhamento pertenciam ao que você está restaurando. Eles não funcionam desde a exclusão.",
+      "chooseElsewhere": "Recuperados, eles apontarão para o novo local.",
+      "keep": "Restaurar os links de compartilhamento",
+      "drop": "Excluir os links de compartilhamento",
+      "deleteNotice": "Os links de compartilhamento também serão excluídos definitivamente.",
+      "restored": "{count} link de compartilhamento recuperado | {count} links de compartilhamento recuperados",
+      "dropped": "{count} link de compartilhamento excluído | {count} links de compartilhamento excluídos"
+    }
+  },
+  "versions": {
+    "title": "Versões",
+    "menu": "Versões",
+    "aria": "Versões do arquivo",
+    "current": "Versão atual",
+    "empty": "Ainda não há versões anteriores. Cada salvamento guarda o que substitui.",
+    "disabled": "As versões de arquivos estão desativadas: os salvamentos não guardam mais novas. As abaixo permanecem até expirarem.",
+    "loadFailed": "Não foi possível carregar as versões.",
+    "notShared": "O histórico deste arquivo não está compartilhado com você.",
+    "unavailable": "O conteúdo dela está faltando no disco.",
+    "unknownAuthor": "Autor desconhecido",
+    "shareLink": "Alguém com o link",
+    "pinned": "Fixada",
+    "aside": "Posta de lado",
+    "asideHelp": "Salva por um editor aberto antes de uma restauração: guardada aqui em vez de desfazer a restauração.",
+    "total": "{count} versão, {size} | {count} versões, {size}",
+    "source": {
+      "editor": "Editor de texto",
+      "shareEditor": "Editor por um compartilhamento",
+      "onlyoffice": "ONLYOFFICE",
+      "collabora": "Collabora",
+      "restore": "Versão restaurada",
+      "external": "Alterado fora do aplicativo"
+    },
+    "actions": {
+      "menu": "Ações da versão",
+      "select": "Selecionar esta versão",
+      "selectAll": "Selecionar tudo",
+      "deleteSelected": "Excluir seleção ({count})",
+      "deleteAll": "Excluir tudo",
+      "preview": "Abrir somente leitura",
+      "download": "Baixar",
+      "restore": "Restaurar",
+      "rename": "Nomear…",
+      "pin": "Fixar",
+      "unpin": "Desafixar",
+      "delete": "Excluir",
+      "restoreCopy": "Restaurar como cópia…",
+      "replaceOther": "Substituir outro arquivo…"
+    },
+    "confirm": {
+      "restoreTitle": "Restaurar esta versão?",
+      "restoreMessage": "\"{name}\" volta ao conteúdo de {date}. O conteúdo atual é guardado como versão.",
+      "deleteTitle": "Excluir esta versão? | Excluir {count} versões?",
+      "deleteMessage": "Esta versão é excluída definitivamente. | Estas {count} versões são excluídas definitivamente.",
+      "deleteAllTitle": "Excluir todas as versões?",
+      "deleteAllMessage": "Todas as versões anteriores de \"{name}\" são excluídas definitivamente, inclusive as fixadas. O arquivo em si permanece.",
+      "replaceTitle": "Substituir \"{target}\"?",
+      "replaceMessage": "\"{target}\" recebe esta versão de \"{name}\" como conteúdo. O conteúdo atual dele é guardado nas próprias versões.",
+      "replace": "Substituir"
+    },
+    "rename": {
+      "title": "Nomear esta versão",
+      "placeholder": "Por exemplo: enviada ao cliente",
+      "help": "Um nome facilita encontrar uma versão. Fixe-a para mantê-la fora da limpeza automática."
+    },
+    "results": {
+      "restored": "Versão restaurada",
+      "unchanged": "O arquivo já tem este conteúdo",
+      "deleted": "{count} versão excluída | {count} versões excluídas",
+      "renamed": "Versão nomeada",
+      "pinned": "Versão fixada: a limpeza automática a mantém",
+      "unpinned": "Versão desafixada",
+      "copied": "Cópia criada: {path}",
+      "replaced": "\"{path}\" substituído"
+    },
+    "errors": {
+      "action": "A ação nesta versão falhou"
+    },
+    "mark": "{count} versão anterior | {count} versões anteriores"
+  },
+  "onlyoffice": {
+    "renamedHeading": "Renomeado",
+    "renamedBody": "O documento agora se chama {name}.",
+    "renameFailed": "Não foi possível renomear para {name}",
+    "andOthers": "e mais {count}",
+    "transferHeading": "O arquivo está sendo editado",
+    "transferBody": "Este arquivo está aberto no OnlyOffice. Continuar pode atrapalhar um salvamento em andamento. Deseja continuar?",
+    "transferCancel": "Cancelar",
+    "transferConfirm": "Continuar",
+    "editingBy": "Sendo editado no ONLYOFFICE por {names}",
+    "editingNow": "Sendo editado no ONLYOFFICE",
+    "savedAsHeading": "Salvo nesta pasta",
+    "savedAsBody": "{name} foi adicionado ao lado do original.",
+    "saveAsFailed": "Não foi possível salvar {name}",
+    "editingBody": "{names} está aberto no OnlyOffice. A {action} vai continuar. | {names} estão abertos no OnlyOffice. A {action} vai continuar.",
+    "editingHeading": "O arquivo está sendo editado",
+    "pickFailed": "Não foi possível usar o arquivo selecionado",
+    "actionCopy": "cópia",
+    "actionDelete": "exclusão",
+    "actionMove": "movimentação",
+    "actionRename": "renomeação",
+    "pickCompare": "Comparar com um documento",
+    "pickDocument": "Escolher um documento",
+    "pickImage": "Inserir uma imagem",
+    "pickSpreadsheet": "Escolher uma planilha"
+  },
+  "preview": {
+    "nothingOpensIt": "Nada aqui consegue abrir {name}.",
+    "backToFolder": "Voltar para a pasta",
+    "tooLargeToRenderSized": "Este documento tem {size}. A visualização para em {limit}, porque monta cada elemento no navegador. Abra-o no editor ou baixe-o.",
+    "tooLargeToRenderWithEditor": "Este documento tem {size}. A visualização para em {limit}, porque monta cada elemento no navegador; o editor abre até {editorLimit}. Abra-o no editor ou baixe-o.",
+    "stillRendering": "Renderizando… {percent}%"
+  },
+  "archive": {
+    "password": {
+      "title": "Senha necessária",
+      "description": "Este arquivo está protegido. Digite a senha para extraí-lo.",
+      "label": "Senha do arquivo",
+      "invalid": "Senha incorreta, ou o arquivo está danificado.",
+      "submit": "Extrair",
+      "extracting": "Extraindo..."
+    },
+    "breadcrumb": "Dentro do arquivo",
+    "empty": "Esta pasta está vazia.",
+    "download": "Baixar",
+    "downloadNamed": "Baixar {name}",
+    "outside": "Uma entrada não é exibida: o nome dela aponta para fora do arquivo. | {count} entradas não são exibidas: os nomes delas apontam para fora do arquivo.",
+    "unreadable": "Não foi possível ler este arquivo.",
+    "readFailed": "Não foi possível ler este arquivo.",
+    "notReadable": "Este tipo de arquivo não pode ser exibido aqui.",
+    "tooBigToRead": "Grande demais para exibir aqui: {size}, o limite é {ceiling}. Baixe ou extraia o arquivo para abri-lo.",
+    "extract": "Extrair aqui",
+    "extractTo": "Extrair para…",
+    "extractNamed": "Extrair {name} aqui",
+    "selectAll": "Selecionar tudo aqui",
+    "selectNamed": "Selecionar {name}",
+    "selected": "Um item selecionado | {count} itens selecionados",
+    "extracted": "Extraído: {name}",
+    "extractedNothing": "Nada saiu dele.",
+    "extractFailed": "Não foi possível extrair isto.",
+    "count": "Uma entrada neste arquivo | {count} entradas neste arquivo"
+  },
+  "storagePicker": {
+    "root": "Armazenamento",
+    "empty": "Nada para escolher aqui",
+    "breadcrumb": "Caminho da pasta",
+    "chooseFolder": "Escolher esta pasta"
+  },
+  "destinationPicker": {
+    "moveTitle": "Mover para",
+    "copyTitle": "Copiar para",
+    "moveHere": "Mover para cá",
+    "copyHere": "Copiar para cá",
+    "noFolders": "Nenhuma pasta aqui",
+    "rootRejected": "Escolha primeiro um volume ou uma pasta",
+    "itselfRejected": "Uma pasta não pode ser movida para dentro de si mesma",
+    "descendantRejected": "Uma pasta não pode ser movida para dentro de uma de suas próprias pastas",
+    "alreadyThereRejected": "Já está aqui",
+    "restoreTitle": "Restaurar em",
+    "restoreHere": "Restaurar aqui",
+    "versionCopyTitle": "Restaurar uma cópia em",
+    "versionCopyHere": "Restaurar uma cópia aqui",
+    "replaceTitle": "Escolher o arquivo a substituir",
+    "replaceHere": "Substituir este arquivo",
+    "fileRequired": "Escolha um arquivo",
+    "sameFileRejected": "Escolha um arquivo diferente deste",
+    "nothingHere": "Nada aqui",
+    "extractTitle": "Extrair para",
+    "extractHere": "Extrair aqui"
+  },
+  "links": {
+    "outside": "Link para fora deste volume",
+    "outsideExplained": "{name} é um link para um local fora deste volume. Não pode ser aberto, renomeado nem excluído daqui; remova-o no servidor se não for mais necessário."
+  },
+  "quickActions": {
+    "menu": "Ações rápidas"
   }
 }

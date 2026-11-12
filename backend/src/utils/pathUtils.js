@@ -5,10 +5,71 @@ const { directories, features, personal } = require('../config/index');
 const { pathExists } = require('./fsUtils');
 const { cachedForRequest, hasRequestContext } = require('./requestContext');
 const logger = require('./logger');
+const { ForbiddenError, NotFoundError, ValidationError } = require('../errors/AppError');
+const { ZONE_DIRECTORY_NAME } = require('../config/constants');
 
 const NAME_INVALID_PATTERN = /[\\/]/;
-const RESERVED_NAMES = new Set(['.', '..']);
+// The trash zone's name is reserved everywhere, not only where a zone sits: a
+// folder renamed to it at a volume root would take the zone's place.
+const RESERVED_NAMES = new Set(['.', '..', ZONE_DIRECTORY_NAME]);
+
+/**
+ * Refuse a logical path that reaches into a trash zone. The zone holds what
+ * people deleted, identified by opaque ids; browsing, previewing, downloading
+ * or sharing it by typing its path would bypass the trash's own visibility
+ * rules, so no path through it resolves at all.
+ */
+const assertOutsideZone = (relativePath) => {
+  if (
+    String(relativePath || '')
+      .split(/[\\/]+/)
+      .includes(ZONE_DIRECTORY_NAME)
+  ) {
+    throw new ForbiddenError('This location is reserved by the application.');
+  }
+};
 const PERSONAL_ENABLED = Boolean(features && features.personalFolders);
+
+/**
+ * Whether a folder at this place is one of the spaces themselves: a volume,
+ * the personal folder, an assigned volume.
+ *
+ * Those are not folders inside the storage, they are how the server was set
+ * up — a bind mount of somebody's data, usually shared with other programs.
+ * Creating one from the application was refused; renaming and deleting one
+ * were not, so a single API call renamed a mount, or removed it and everything
+ * under it (nxzai/NextExplorer#409). The interface offers neither, which is why
+ * it went unnoticed: only a direct call reached them.
+ *
+ * @param {string} parentRelativePath the folder the entry sits in
+ */
+const isTopLevelEntry = (parentRelativePath = '') => {
+  try {
+    return normalizeRelativePath(parentRelativePath) === '';
+  } catch {
+    // A path that does not even normalize is refused elsewhere, and is
+    // certainly not the top level.
+    return false;
+  }
+};
+
+/**
+ * Refuse an operation on such an entry, in the same words wherever it is asked.
+ *
+ * A file there is neither: the top level lists the spaces and nothing else,
+ * so one is not even shown, and refusing to touch it would protect nothing.
+ *
+ * @param {string} parentRelativePath
+ * @param {string} action  renamed, deleted, moved, copied
+ * @param {boolean} [isDirectory]  what the disk says the entry is
+ */
+const assertNotTopLevelEntry = (parentRelativePath, action, isDirectory = true) => {
+  if (!isDirectory || !isTopLevelEntry(parentRelativePath)) return;
+  throw new ValidationError(
+    `What the top level holds — a volume, the personal folder — is how this server was set up, ` +
+      `not a folder inside it: it cannot be ${action} here.`
+  );
+};
 
 const normalizeRelativePath = (relativePath = '') => {
   if (!relativePath || relativePath === '/') {
@@ -22,7 +83,7 @@ const normalizeRelativePath = (relativePath = '') => {
   }
 
   if (normalized === '..' || normalized.startsWith('..' + path.sep)) {
-    throw new Error('Invalid path. Traversal outside the volume root is not allowed.');
+    throw new ValidationError('Invalid path. Traversal outside the volume root is not allowed.');
   }
 
   return normalized;
@@ -123,7 +184,7 @@ const assertRealPathWithinRoot = async (
   const expectedRoot = realRoot(root);
   const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
   const realWithSep = expectedRoot.endsWith(path.sep) ? expectedRoot : `${expectedRoot}${path.sep}`;
-  const outside = () => new Error(`Resolved path is outside ${label}.`);
+  const outside = () => new ForbiddenError(`Resolved path is outside ${label}.`);
   const contained = (candidate) => candidate === expectedRoot || candidate.startsWith(realWithSep);
   const namedInside = (candidate) =>
     candidate === root ||
@@ -162,7 +223,6 @@ const assertRealPathWithinRoot = async (
   let candidate = absolutePath;
 
   for (;;) {
-    // eslint-disable-next-line no-await-in-loop
     const realCandidate = await realpathOrNull(candidate);
 
     if (realCandidate) {
@@ -170,11 +230,10 @@ const assertRealPathWithinRoot = async (
       return;
     }
 
-    // eslint-disable-next-line no-await-in-loop
     const link = await readLinkOrNull(candidate);
     if (link !== null) {
       if (hops >= MAX_SYMLINK_HOPS) {
-        throw new Error('Too many levels of symbolic links.');
+        throw new ForbiddenError('Too many levels of symbolic links.');
       }
       const target = path.resolve(path.dirname(candidate), link);
       // The target of a broken link may not exist anywhere, so there is no real
@@ -236,18 +295,33 @@ const isInsidePersonalRoot = (absolutePath) => {
   return false;
 };
 
+/**
+ * Whether reaching `target` from `root` would step into somebody's personal
+ * folder that `root` itself is not part of.
+ *
+ * The volume is one such root; an assigned volume or its share is another,
+ * since an administrator may assign a folder that holds `_users`. A root that
+ * is already inside a personal folder — an account's own, or a share of it —
+ * is not stepping in anywhere, and is left alone.
+ */
+const reachesIntoPersonalRoot = (rootAbs, targetAbs) =>
+  isInsidePersonalRoot(targetAbs) && !isInsidePersonalRoot(rootAbs);
+
 const resolveVolumePath = async (relativePath = '') => {
   const safeRelativePath = normalizeRelativePath(relativePath);
+  assertOutsideZone(safeRelativePath);
   const absolutePath = path.resolve(directories.volume, safeRelativePath);
 
   if (absolutePath !== directories.volume && !absolutePath.startsWith(directories.volumeWithSep)) {
-    throw new Error('Resolved path is outside the configured volume root.');
+    throw new ForbiddenError('Resolved path is outside the configured volume root.');
   }
 
   await assertRealPathWithinRoot(absolutePath, directories.volume);
 
   if (isInsidePersonalRoot(absolutePath)) {
-    throw new Error('Personal folders are reached through the personal space, not the volume.');
+    throw new ForbiddenError(
+      'Personal folders are reached through the personal space, not the volume.'
+    );
   }
 
   return absolutePath;
@@ -296,24 +370,24 @@ const findAvailableFolderName = async (directory, baseName = 'Untitled Folder') 
 
 const ensureValidName = (rawName) => {
   if (typeof rawName !== 'string') {
-    throw new Error('A valid name is required.');
+    throw new ValidationError('A valid name is required.');
   }
 
   const name = rawName;
   if (!name.trim()) {
-    throw new Error('Name cannot be empty.');
+    throw new ValidationError('Name cannot be empty.');
   }
 
   if (NAME_INVALID_PATTERN.test(name)) {
-    throw new Error('Name cannot contain path separators.');
+    throw new ValidationError('Name cannot contain path separators.');
   }
 
   if (name.includes('\0')) {
-    throw new Error('Name contains invalid characters.');
+    throw new ValidationError('Name contains invalid characters.');
   }
 
   if (RESERVED_NAMES.has(name)) {
-    throw new Error('This name is not allowed.');
+    throw new ValidationError('This name is not allowed.');
   }
 
   return name;
@@ -451,10 +525,10 @@ const getUserFolderName = (user = {}) => {
  */
 const getUserRootDir = async (user) => {
   if (!PERSONAL_ENABLED) {
-    throw new Error('Personal directories are disabled.');
+    throw new ForbiddenError('Personal directories are disabled.');
   }
   if (!user || !user.id) {
-    throw new Error('User context is required for personal paths.');
+    throw new ForbiddenError('User context is required for personal paths.');
   }
 
   const base = directories.userRoot;
@@ -462,7 +536,7 @@ const getUserRootDir = async (user) => {
   const userRoot = path.resolve(base, folderName);
 
   if (userRoot !== base && !userRoot.startsWith(directories.userRootWithSep)) {
-    throw new Error('Resolved user directory is outside the configured user root.');
+    throw new ForbiddenError('Resolved user directory is outside the configured user root.');
   }
 
   // Failures are left to the operation that follows: it is the one that knows
@@ -475,11 +549,12 @@ const getUserRootDir = async (user) => {
 
 const resolvePersonalPath = async (relativePath = '', user) => {
   const safeRelativePath = normalizeRelativePath(relativePath);
+  assertOutsideZone(safeRelativePath);
   const userRoot = await getUserRootDir(user);
   const absolutePath = path.resolve(userRoot, safeRelativePath);
 
   if (absolutePath !== userRoot && !absolutePath.startsWith(userRoot + path.sep)) {
-    throw new Error('Resolved path is outside the configured user directory.');
+    throw new ForbiddenError('Resolved path is outside the configured user directory.');
   }
 
   await assertRealPathWithinRoot(absolutePath, userRoot, 'the configured user directory');
@@ -492,6 +567,9 @@ const resolveLogicalPath = async (
   { user, guestSession, share, userVolume } = {}
 ) => {
   const { space, rel, shareToken, innerPath } = parsePathSpace(relativePath);
+  // Here as well as in the two resolvers below it, because a user volume and a
+  // share reach the disk without going through either of them.
+  assertOutsideZone(rel);
 
   logger.debug(
     {
@@ -510,10 +588,10 @@ const resolveLogicalPath = async (
 
   if (space === 'personal') {
     if (!PERSONAL_ENABLED) {
-      throw new Error('Personal directories are disabled.');
+      throw new ForbiddenError('Personal directories are disabled.');
     }
     if (!user) {
-      throw new Error('User context is required for personal paths.');
+      throw new ForbiddenError('User context is required for personal paths.');
     }
 
     // Awaited, which is the whole point of it: `resolvePersonalPath` checks that
@@ -555,10 +633,16 @@ const resolveLogicalPath = async (
       : userVolume.path + path.sep;
 
     if (absolutePath !== userVolume.path && !absolutePath.startsWith(volumePathWithSep)) {
-      throw new Error('Resolved path is outside the assigned volume.');
+      throw new ForbiddenError('Resolved path is outside the assigned volume.');
     }
 
     await assertRealPathWithinRoot(absolutePath, userVolume.path, 'the assigned volume');
+
+    if (reachesIntoPersonalRoot(userVolume.path, absolutePath)) {
+      throw new ForbiddenError(
+        'Personal folders are reached through the personal space, not an assigned volume.'
+      );
+    }
 
     return {
       space: 'volume',
@@ -606,7 +690,7 @@ const resolveSharePath = async (
 
   if (!shareToken) {
     logger.debug('resolveSharePath: No shareToken found');
-    throw new Error('Share token is required');
+    throw new ValidationError('Share token is required');
   }
 
   // Use pre-fetched share if available (optimization to avoid duplicate DB query)
@@ -620,7 +704,7 @@ const resolveSharePath = async (
 
   if (!share) {
     logger.debug({ shareToken }, 'resolveSharePath share not found in database');
-    throw new Error('Share not found');
+    throw new NotFoundError('Share not found');
   }
 
   logger.debug(
@@ -644,7 +728,7 @@ const resolveSharePath = async (
   if (share.sourceSpace === 'personal') {
     const owner = await getUserById(share.ownerId);
     if (!owner) {
-      throw new Error('Share owner not found');
+      throw new NotFoundError('Share owner not found');
     }
 
     const combinedPath =
@@ -656,15 +740,15 @@ const resolveSharePath = async (
       .split('/')
       .filter(Boolean);
     if (!volumeId) {
-      throw new Error('Share source volume is invalid');
+      throw new NotFoundError('Share source volume is invalid');
     }
 
     const userVolume = await getUserVolumeById(volumeId);
     if (!userVolume) {
-      throw new Error('Share source volume not found');
+      throw new NotFoundError('Share source volume not found');
     }
     if (String(userVolume.userId) !== String(share.ownerId)) {
-      throw new Error('Share source volume mismatch');
+      throw new NotFoundError('Share source volume mismatch');
     }
 
     const baseWithinVolume = rest.join('/');
@@ -679,10 +763,16 @@ const resolveSharePath = async (
       ? userVolume.path
       : userVolume.path + path.sep;
     if (absolutePath !== userVolume.path && !absolutePath.startsWith(volumePathWithSep)) {
-      throw new Error('Resolved path is outside the assigned volume.');
+      throw new ForbiddenError('Resolved path is outside the assigned volume.');
     }
 
     await assertRealPathWithinRoot(absolutePath, userVolume.path, 'the assigned volume');
+
+    if (reachesIntoPersonalRoot(userVolume.path, absolutePath)) {
+      throw new ForbiddenError(
+        'Personal folders are reached through the personal space, not an assigned volume.'
+      );
+    }
   } else {
     const combinedPath =
       isDirShare && innerPath ? combineRelativePath(share.sourcePath, innerPath) : share.sourcePath;
@@ -701,7 +791,7 @@ const resolveSharePath = async (
 
 const resolveItemPaths = async (item = {}, options = {}) => {
   if (!item || typeof item.name !== 'string') {
-    throw new Error('Each item must include a name.');
+    throw new ValidationError('Each item must include a name.');
   }
 
   const parentPath = item.path || '';
@@ -720,6 +810,8 @@ module.exports = {
   resolvePersonalPath,
   resolveLogicalPath,
   combineRelativePath,
+  isTopLevelEntry,
+  assertNotTopLevelEntry,
   splitName,
   findAvailableName,
   findAvailableFolderName,
@@ -728,4 +820,6 @@ module.exports = {
   getUserFolderName,
   getUserFolderNameCandidates,
   resolveItemPaths,
+  isInsidePersonalRoot,
+  reachesIntoPersonalRoot,
 };

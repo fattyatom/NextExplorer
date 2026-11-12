@@ -1,232 +1,218 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import express from 'express';
 import request from 'supertest';
-import AdmZip from 'adm-zip';
-import { setupTestEnv, clearModuleCache, modulePath } from '../helpers/env-test-utils.js';
+import { createTestApp, setupTestEnv } from '../helpers/env-test-utils.js';
 
-let envContext;
-const testUser = { id: 'user-1', roles: ['user'] };
+/**
+ * Getting bytes back out.
+ *
+ * The route had 19.8% coverage while deciding two things that matter: whether
+ * the caller is allowed the file at all, and what the browser will call what it
+ * receives. The second sounds cosmetic and is not — the name is built from a
+ * logical path, a base path and a share prefix, and getting it wrong hands
+ * somebody a file called `share` or a zip named after the wrong folder.
+ *
+ * Downloading is also its own permission. A share can be readable and still
+ * refuse downloads, which is the difference between "look at this" and "take a
+ * copy", and nothing else in the suite covered that branch.
+ */
 
-beforeAll(async () => {
-  envContext = await setupTestEnv({
+const setup = async ({ user = { id: 'admin', roles: ['admin'] }, env = {} } = {}) => {
+  const envContext = await setupTestEnv({
     tag: 'download-test-',
+    env,
     modules: [
+      'src/config/env',
+      'src/config/index',
       'src/routes/files/download',
-      'src/routes/files/rangeDownload',
-      'src/services/accessManager',
-      'src/services/preparedDownloads',
       'src/middleware/errorHandler',
+      'src/services/accessManager',
+      'src/services/settingsService',
     ],
   });
 
-  const testDir = path.join(envContext.volumeDir, 'photos');
-  await fs.mkdir(testDir, { recursive: true });
-  await fs.writeFile(path.join(testDir, 'a.txt'), 'File A contents');
-  await fs.writeFile(path.join(testDir, 'b.txt'), 'File B contents');
-  await fs.writeFile(path.join(envContext.volumeDir, 'solo.txt'), 'Solo file');
-});
+  const volume = envContext.volumeDir;
+  await fs.mkdir(path.join(volume, 'Docs/2026'), { recursive: true });
+  await fs.writeFile(path.join(volume, 'Docs/report.txt'), 'annual report');
+  await fs.writeFile(path.join(volume, 'Docs/notes.md'), '# notes');
+  await fs.writeFile(path.join(volume, 'Docs/.env'), 'SECRET=1');
+  await fs.writeFile(path.join(volume, 'Docs/2026/q1.txt'), 'first quarter');
 
-afterAll(async () => {
-  await envContext.cleanup();
-});
-
-const buildApp = ({ user } = {}) => {
-  clearModuleCache('src/config/env');
-  clearModuleCache('src/config/index');
-  clearModuleCache('src/routes/files/download');
-  clearModuleCache('src/routes/files/rangeDownload');
-  clearModuleCache('src/services/accessManager');
-  clearModuleCache('src/services/preparedDownloads');
-  clearModuleCache('src/middleware/errorHandler');
-
-  const accessManager = envContext.requireFresh('src/services/accessManager');
-  accessManager.resolvePathWithAccess = async (context, relativePath) => ({
-    accessInfo: { canAccess: true, canRead: true, canDownload: true },
-    resolved: {
-      absolutePath: path.join(envContext.volumeDir, relativePath),
-      relativePath,
-    },
-  });
-
-  const downloadRoutes = envContext.requireFresh('src/routes/files/download');
-  const rangeDownloadRoutes = envContext.requireFresh('src/routes/files/rangeDownload');
-  const preparedDownloads = require(modulePath('src/services/preparedDownloads'));
+  const routes = envContext.requireFresh('src/routes/files/download');
   const { errorHandler } = envContext.requireFresh('src/middleware/errorHandler');
+  const { getDb } = envContext.requireFresh('src/services/db');
+  const db = await getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO users (id, email, email_verified, username, display_name, roles, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run('admin', 'admin@example.com', 1, 'admin', 'Admin', '["admin"]', now, now);
 
-  const app = express();
-  app.use(express.json());
-  app.use((req, _res, next) => {
-    if (user) req.user = user;
-    next();
-  });
-  app.use('/api', downloadRoutes);
-  app.use('/api', rangeDownloadRoutes);
-  app.use(errorHandler);
-  return { app, preparedDownloads };
+  const app = createTestApp({ router: routes, mountPath: '/api', user, errorHandler });
+  return { envContext, app };
 };
 
-/**
- * Poll preparedDownloads until the archive finishes building.
- * Returns the download metadata once ready.
- */
-async function waitForBuild(preparedDownloads, downloadId, timeoutMs = 5000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const dl = preparedDownloads.get(downloadId);
-    if (dl && !dl.building) return dl;
-    await new Promise((r) => setTimeout(r, 50));
+let ctx;
+afterEach(async () => {
+  if (ctx) {
+    await ctx.envContext.cleanup();
+    ctx = null;
   }
-  throw new Error(`Archive build did not complete within ${timeoutMs}ms`);
-}
+});
 
-describe('POST /api/download', () => {
-  // ── Single-file fast path ──────────────────────────────────────────
-  describe('single file', () => {
-    it('streams the file directly (no zip, no async build)', async () => {
-      const { app } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({ items: ['solo.txt'] });
+const post = async (body, options) => {
+  ctx = await setup(options);
+  return request(ctx.app).post('/api/download').send(body);
+};
 
-      expect(res.status).toBe(200);
-      expect(res.headers['content-disposition']).toContain('solo.txt');
-      expect(res.text).toBe('Solo file');
-    });
+/** supertest leaves an unknown content type as a string; a zip needs its bytes. */
+const binary = (res, callback) => {
+  const chunks = [];
+  res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
+};
+
+const postBinary = async (body, options) => {
+  ctx = await setup(options);
+  return request(ctx.app).post('/api/download').send(body).buffer().parse(binary);
+};
+
+describe('what it refuses before reading anything', () => {
+  it('asks for a path when the body carries none', async () => {
+    const response = await post({});
+
+    expect(response.status).toBe(400);
   });
 
-  // ── Async archive build ───────────────────────────────────────────
-  describe('directory / multi-file (async build)', () => {
-    it('returns 202 with downloadId for a directory', async () => {
-      const { app } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({ items: ['photos'], basePath: '' });
+  it('asks again when every path normalises away to nothing', async () => {
+    const response = await post({ paths: ['', '   ', null] });
 
-      expect(res.status).toBe(202);
-      expect(res.body.downloadId).toMatch(/^[a-f0-9]{32}$/);
-      expect(res.body.filename).toBe('photos.zip');
-    });
-
-    it('returns 202 with downloadId for multiple files', async () => {
-      const { app } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({ items: ['photos/a.txt', 'photos/b.txt'], basePath: '' });
-
-      expect(res.status).toBe(202);
-      expect(res.body.downloadId).toBeDefined();
-      expect(res.body.filename).toBe('download.zip');
-    });
-
-    it('builds a valid zip to temp file', async () => {
-      const { app, preparedDownloads } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({ items: ['photos'], basePath: '' });
-
-      const { downloadId } = res.body;
-
-      // Wait for the background build to finish
-      const dl = await waitForBuild(preparedDownloads, downloadId);
-      expect(dl.size).toBeGreaterThan(0);
-      expect(dl.filename).toBe('photos.zip');
-
-      // Verify the temp file is a valid zip
-      const zipBuffer = await fs.readFile(dl.tempPath);
-      const zip = new AdmZip(zipBuffer);
-      const entries = zip.getEntries().map((e) => e.entryName).sort();
-      expect(entries).toContain('photos/a.txt');
-      expect(entries).toContain('photos/b.txt');
-    });
-
-    it('serves the completed zip via range-download', async () => {
-      const { app, preparedDownloads } = buildApp({ user: testUser });
-      const postRes = await request(app)
-        .post('/api/download')
-        .send({ items: ['photos'], basePath: '' });
-
-      const { downloadId } = postRes.body;
-      await waitForBuild(preparedDownloads, downloadId);
-
-      // Download via range-download endpoint
-      const getRes = await request(app)
-        .get(`/api/range-download?downloadId=${downloadId}`)
-        .responseType('arraybuffer');
-
-      expect(getRes.status).toBe(200);
-      expect(getRes.headers['content-type']).toBe('application/zip');
-      // Cache directives so a CDN doesn't cache/transform the single-use file.
-      expect(getRes.headers['cache-control']).toContain('no-store');
-
-      const zip = new AdmZip(Buffer.from(getRes.body));
-      const entries = zip.getEntries().map((e) => e.entryName).sort();
-      expect(entries).toContain('photos/a.txt');
-      expect(entries).toContain('photos/b.txt');
-    });
-
-    it('returns 202 while still building, then 200 when ready', async () => {
-      const { app } = buildApp({ user: testUser });
-      const postRes = await request(app)
-        .post('/api/download')
-        .send({ items: ['photos'], basePath: '' });
-
-      const { downloadId } = postRes.body;
-
-      // Immediately try range-download (before build finishes)
-      // Depending on speed it may already be done (200) or still building (202)
-      const getRes = await request(app)
-        .head(`/api/range-download?downloadId=${downloadId}`);
-
-      expect([200, 202]).toContain(getRes.status);
-    });
-
-    it('long-polls with wait=1 and returns 200 once the build finishes', async () => {
-      const { app } = buildApp({ user: testUser });
-      const postRes = await request(app)
-        .post('/api/download')
-        .send({ items: ['photos'], basePath: '' });
-
-      const { downloadId } = postRes.body;
-
-      // wait=1 holds the request open until the background build completes,
-      // so a single request should resolve to 200 without client-side polling.
-      const headRes = await request(app)
-        .head(`/api/range-download?downloadId=${downloadId}&wait=1`);
-
-      expect(headRes.status).toBe(200);
-      expect(Number(headRes.headers['content-length'])).toBeGreaterThan(0);
-    });
+    expect(response.status).toBe(400);
   });
 
-  // ── Validation ─────────────────────────────────────────────────────
-  describe('validation', () => {
-    it('returns 400 when no paths provided', async () => {
-      const { app } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({ items: [] });
+  it('refuses a path that climbs out of the volume', async () => {
+    const response = await post({ paths: ['Docs/../../etc/passwd'] });
 
-      expect(res.status).toBe(400);
+    expect(response.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('one file', () => {
+  it('sends it under its own name', async () => {
+    const response = await post({ paths: ['Docs/report.txt'] });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-disposition']).toContain('report.txt');
+    expect(response.text).toBe('annual report');
+  });
+
+  /**
+   * Express refuses dotfiles by default, which would make `.env`, `.gitignore`
+   * and every dotfile in a repository undownloadable with no message saying so.
+   */
+  it('sends a dotfile, which Express would otherwise refuse', async () => {
+    const response = await postBinary({ paths: ['Docs/.env'] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.toString('utf8')).toBe('SECRET=1');
+  });
+
+  it('names it from the base path when one is given', async () => {
+    const response = await post({ paths: ['Docs/2026/q1.txt'], basePath: 'Docs' });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-disposition']).toContain('q1.txt');
+  });
+
+  it('accepts the singular `path` field as well as `paths`', async () => {
+    const response = await post({ path: 'Docs/report.txt' });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe('annual report');
+  });
+});
+
+describe('when it has to build a zip', () => {
+  const isZip = (response) => {
+    expect(response.headers['content-type']).toContain('zip');
+    // Local file header — proves an archive came back rather than a file.
+    expect(response.body.subarray(0, 2).toString('latin1')).toBe('PK');
+  };
+
+  it('archives two files rather than sending one', async () => {
+    const response = await postBinary({
+      paths: ['Docs/report.txt', 'Docs/notes.md'],
+      basePath: 'Docs',
     });
 
-    it('returns 400 when body is missing', async () => {
-      const { app } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({});
+    expect(response.status).toBe(200);
+    isZip(response);
+  });
 
-      expect(res.status).toBe(400);
-    });
+  it('archives a single directory', async () => {
+    const response = await postBinary({ paths: ['Docs/2026'], basePath: 'Docs' });
 
-    it('returns 400 for only-whitespace paths', async () => {
-      const { app } = buildApp({ user: testUser });
-      const res = await request(app)
-        .post('/api/download')
-        .send({ items: ['  ', ''] });
+    expect(response.status).toBe(200);
+    isZip(response);
+    expect(response.headers['content-disposition']).toContain('2026.zip');
+  });
 
-      expect(res.status).toBe(400);
-    });
+  it('names a multi-item archive after the folder they came from', async () => {
+    const response = await post({ paths: ['Docs/report.txt', 'Docs/notes.md'], basePath: 'Docs' });
+
+    expect(response.headers['content-disposition']).toContain('Docs.zip');
+  });
+
+  it('falls back to download.zip when there is no base path to name it after', async () => {
+    const response = await post({ paths: ['Docs/report.txt', 'Docs/notes.md'] });
+
+    expect(response.headers['content-disposition']).toContain('download.zip');
+  });
+
+  /**
+   * The same file twice is one file. Without the dedupe the archive carries two
+   * entries of the same name, which some extractors silently collapse and
+   * others refuse.
+   */
+  it('treats the same path listed twice as one', async () => {
+    const response = await post({ paths: ['Docs/report.txt', 'Docs/report.txt'] });
+
+    expect(response.status).toBe(200);
+    // One target left after the dedupe, so this is a plain file, not a zip.
+    expect(response.headers['content-type']).not.toContain('zip');
+    expect(response.text).toBe('annual report');
+  });
+});
+
+describe('a caller who may not reach the file', () => {
+  /**
+   * `USER_VOLUMES=true` with an account assigned no volume: the access check is
+   * the only thing that can refuse here.
+   *
+   * Note what this does NOT cover. The route also tests `accessInfo.canDownload`,
+   * and no test can reach that branch, because `canDownload` is set to `true`
+   * everywhere it is set except in the denied-access object — where `canAccess`
+   * is already false and answers first. Removing the check from the route breaks
+   * nothing, which is how it was found. It is recorded in TODO.md rather than
+   * asserted here: a test that claims to cover it would be claiming something
+   * untrue.
+   */
+  it('is refused, and told it is a permission problem', async () => {
+    const response = await post(
+      { paths: ['Docs/report.txt'] },
+      { user: { id: 'nobody', roles: ['user'] }, env: { USER_VOLUMES: 'true' } }
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it('is refused even when one path in the list is allowed', async () => {
+    const response = await post(
+      { paths: ['Docs/report.txt', 'Docs/notes.md'] },
+      { user: { id: 'nobody', roles: ['user'] }, env: { USER_VOLUMES: 'true' } }
+    );
+
+    expect(response.status).toBe(403);
   });
 });

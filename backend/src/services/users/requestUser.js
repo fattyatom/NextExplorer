@@ -2,6 +2,22 @@ const { getDb } = require('../db');
 const { auth: envAuthConfig } = require('../../config/index');
 const { toClientUser, normalizeEmail } = require('./utils');
 const { deriveRolesFromClaims } = require('./oidcAuth');
+const { claimPersonalFolderName } = require('../personalFolders');
+
+/**
+ * An account that has no folder name yet gets one here.
+ *
+ * The migration gave every account that existed a name; this covers the ones
+ * created since, wherever they were created from, without every creation path
+ * having to remember. It writes once in an account's life and reads a column
+ * that was already loaded, so the cost after that is a null check.
+ */
+const withPersonalFolder = (db, row) => {
+  if (row && !row.personal_folder_name) {
+    row.personal_folder_name = claimPersonalFolderName(db, row);
+  }
+  return row;
+};
 
 const getRequestUser = async (req) => {
   // Synthetic or pre-populated user (e.g., AUTH_ENABLED=false)
@@ -9,11 +25,40 @@ const getRequestUser = async (req) => {
     return req.user;
   }
 
+  /**
+   * An API token names one account and nothing else about itself.
+   *
+   * Read before the session on purpose: a request that presents a token is a
+   * token's request, even if a browser cookie happened to ride along with it.
+   * The account is loaded fresh on every request, so a role taken away, or an
+   * account deleted, applies to the token at once — a token is never more than
+   * the account it belongs to, including a moment later.
+   */
+  if (req?.apiToken?.userId) {
+    const db = await getDb();
+    const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.apiToken.userId);
+    if (!row) return null;
+    const user = toClientUser(withPersonalFolder(db, row));
+    if (user) {
+      // Which kind of account this is lives in `auth_methods` rather than on
+      // the row — the column that used to say so was carried there years ago.
+      const local = db
+        .prepare(
+          `SELECT 1 FROM auth_methods
+           WHERE user_id = ? AND method_type = 'local_password' AND enabled = 1
+           LIMIT 1`
+        )
+        .get(row.id);
+      user.provider = local ? 'local' : 'oidc';
+    }
+    return user;
+  }
+
   // Local session
   if (req?.session?.localUserId) {
     const db = await getDb();
     const row = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.localUserId);
-    const user = toClientUser(row);
+    const user = toClientUser(withPersonalFolder(db, row));
     if (user) {
       user.provider = 'local';
     }
@@ -44,7 +89,7 @@ const getRequestUser = async (req) => {
 
     if (authMethod) {
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(authMethod.user_id);
-      const user = toClientUser(row);
+      const user = toClientUser(withPersonalFolder(db, row));
       if (user) {
         user.provider = 'oidc';
         user.oidcIssuer = issuer;
@@ -82,6 +127,21 @@ const getRequestUser = async (req) => {
         roles,
         createdAt: null,
         updatedAt: null,
+        // The subject, not the username.
+        //
+        // This account has no row yet, so there is no claimed folder name to
+        // carry and nothing to claim one against. Left null, the folder would be
+        // derived from `USER_FOLDER_NAME_ORDER` — and the order the reference
+        // recommends for reusing /home puts `username` first, which two
+        // identities from two providers can share. The claim mechanism exists to
+        // stop exactly that, and it cannot run here.
+        //
+        // The subject is unique to the provider that issued it, so it is a
+        // folder of this account's own. It is deliberately not the folder the
+        // account will get once its row exists: that one is claimed, recorded
+        // and permanent, and guessing at it here would be handing out a name
+        // nothing had reserved.
+        personalFolderName: `oidc-${claims.sub}`,
       };
     } catch (_) {
       return null;

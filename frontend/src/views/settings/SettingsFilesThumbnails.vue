@@ -22,7 +22,10 @@ const dirty = computed(
     local.enabled !== original.value.enabled ||
     local.quality !== original.value.quality ||
     local.size !== original.value.size ||
-    local.concurrency !== original.value.concurrency
+    // A stored section without a concurrency means the default the field shows,
+    // not a change: read as one, the page offered to save before settings had
+    // even loaded, and saving then wrote its defaults over what was stored.
+    local.concurrency !== (original.value.concurrency ?? 10)
 );
 
 watch(
@@ -38,6 +41,22 @@ watch(
   { immediate: true }
 );
 
+// The bounds the server holds these to (THUMBNAIL_BOUNDS in
+// backend/src/services/settingsService.js). A value outside them was sent as
+// typed and brought within them there, and an emptied field was dropped: what
+// was saved was not what the page showed.
+const BOUNDS = {
+  quality: [1, 100],
+  size: [64, 1024],
+  concurrency: [1, 50],
+};
+
+const invalid = computed(() =>
+  Object.entries(BOUNDS).some(
+    ([key, [min, max]]) => !(Number.isInteger(local[key]) && local[key] >= min && local[key] <= max)
+  )
+);
+
 const reset = () => {
   const t = appSettings.systemSettings?.thumbnails || appSettings.state.thumbnails;
   if (t) {
@@ -49,6 +68,7 @@ const reset = () => {
 };
 
 const save = async () => {
+  if (invalid.value) return;
   await appSettings.save({
     thumbnails: {
       enabled: local.enabled,
@@ -69,7 +89,10 @@ const save = async () => {
       <div class="text-sm">{{ t('common.unsavedChanges') }}</div>
       <div class="flex gap-2">
         <button
-          class="rounded-md bg-yellow-500 px-3 py-1 text-black hover:bg-yellow-400"
+          type="button"
+          data-test="thumbnail-settings-save"
+          class="rounded-md bg-yellow-500 px-3 py-1 text-black hover:bg-yellow-400 disabled:opacity-50"
+          :disabled="invalid"
           @click="save"
         >
           {{ t('common.save') }}
@@ -98,7 +121,9 @@ const save = async () => {
       class="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800 p-6"
     >
       <div class="space-y-6">
-        <div class="flex items-center justify-between py-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+        <div
+          class="flex items-center justify-between py-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0"
+        >
           <div>
             <div class="font-medium text-zinc-900 dark:text-zinc-100">
               {{ t('settings.thumbs.enable') }}
@@ -125,15 +150,15 @@ const save = async () => {
           <div class="flex items-center gap-3">
             <input
               type="range"
-              min="1"
-              max="100"
+              :min="BOUNDS.quality[0]"
+              :max="BOUNDS.quality[1]"
               v-model.number="local.quality"
               class="w-64 h-2 rounded-lg appearance-none bg-zinc-200 dark:bg-zinc-700 accent-zinc-900 dark:accent-zinc-100"
             />
             <input
               type="number"
-              min="1"
-              max="100"
+              :min="BOUNDS.quality[0]"
+              :max="BOUNDS.quality[1]"
               v-model.number="local.quality"
               class="w-20 rounded-md border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs focus:border-zinc-500 focus:ring-zinc-500 sm:text-sm p-2 border text-center"
             />
@@ -155,8 +180,8 @@ const save = async () => {
           <div class="flex items-center gap-3">
             <input
               type="number"
-              min="64"
-              max="1024"
+              :min="BOUNDS.size[0]"
+              :max="BOUNDS.size[1]"
               step="1"
               v-model.number="local.size"
               class="w-24 rounded-md border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs focus:border-zinc-500 focus:ring-zinc-500 sm:text-sm p-2 border text-center"
@@ -180,20 +205,24 @@ const save = async () => {
           <div class="flex items-center gap-3">
             <input
               type="range"
-              min="1"
-              max="50"
+              :min="BOUNDS.concurrency[0]"
+              :max="BOUNDS.concurrency[1]"
               v-model.number="local.concurrency"
               class="w-64 h-2 rounded-lg appearance-none bg-zinc-200 dark:bg-zinc-700 accent-zinc-900 dark:accent-zinc-100"
             />
             <input
               type="number"
-              min="1"
-              max="50"
+              :min="BOUNDS.concurrency[0]"
+              :max="BOUNDS.concurrency[1]"
               v-model.number="local.concurrency"
               class="w-20 rounded-md border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-xs focus:border-zinc-500 focus:ring-zinc-500 sm:text-sm p-2 border text-center"
             />
           </div>
         </div>
+
+        <p v-if="invalid" data-test="thumbnail-settings-invalid" class="text-sm text-red-600">
+          {{ t('settings.thumbs.invalid') }}
+        </p>
       </div>
     </div>
   </div>

@@ -4,6 +4,9 @@ const env = require('./env');
 const constants = require('./constants');
 const loggingConfig = require('./logging');
 const { parseByteSize } = require('../utils/env');
+const { resolveSessionSecret } = require('./sessionSecret');
+// logger reads config/logging, never this file — requiring it here makes no cycle.
+const logger = require('../utils/logger');
 
 const parseCommaOrSpaceList = (raw) => {
   if (!raw) return [];
@@ -11,7 +14,10 @@ const parseCommaOrSpaceList = (raw) => {
   return parts.map((s) => s.trim()).filter(Boolean);
 };
 
-const DEFAULT_HIDDEN_FILE_PATTERNS = ['.'];
+// Keep the artifacts of a transfer in progress under the same configurable
+// policy as other hidden files: `.download` while one is being fetched,
+// `.uploading` while one is being written.
+const DEFAULT_HIDDEN_FILE_PATTERNS = ['.', 'regex:\\.download$', 'regex:\\.uploading$'];
 
 const parseRegexPattern = (token) => {
   if (token.startsWith('regex:')) {
@@ -31,7 +37,7 @@ const parseRegexPattern = (token) => {
   return null;
 };
 
-const escapeRipgrepGlob = (value) => String(value).replace(/[\\*?\[\]{}]/g, '\\$&');
+const escapeRipgrepGlob = (value) => String(value).replace(/[\\*?[\]{}]/g, '\\$&');
 
 const parseHiddenFilePatterns = (raw) => {
   const tokens = raw == null ? DEFAULT_HIDDEN_FILE_PATTERNS : parseCommaOrSpaceList(raw);
@@ -141,7 +147,6 @@ const directories = {
   config: configDir,
   cache: cacheDir,
   thumbnails: path.join(cacheDir, 'thumbnails'),
-  extensions: path.join(configDir, 'extensions'),
   userRoot: userRootDir,
   userRootWithSep: userRootDir.endsWith(path.sep) ? userRootDir : `${userRootDir}${path.sep}`,
 };
@@ -154,7 +159,7 @@ if (env.PUBLIC_URL) {
     const url = new URL(env.PUBLIC_URL);
     publicUrl = url.href.replace(/\/$/, '');
     publicOrigin = url.origin;
-  } catch (err) {
+  } catch (_) {
     console.warn(`[Config] Invalid PUBLIC_URL: ${env.PUBLIC_URL}`);
   }
 }
@@ -164,15 +169,15 @@ if (env.PUBLIC_URL) {
 // They are considered valid so accessing the app that way doesn't raise the
 // public-URL mismatch warning, and they're accepted by CORS. PUBLIC_URL remains
 // the canonical URL used to build absolute links (shares, OIDC callbacks, WOPI).
-const parseOriginList = (value) =>
+const parseOriginList = (value, variableName = 'INTERNAL_URL') =>
   (typeof value === 'string' ? value.split(',') : [])
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
       try {
         return new URL(entry).origin;
-      } catch (err) {
-        console.warn(`[Config] Invalid INTERNAL_URL entry: ${entry}`);
+      } catch (_) {
+        console.warn(`[Config] Invalid ${variableName} entry: ${entry}`);
         return null;
       }
     })
@@ -194,7 +199,13 @@ const buildCorsConfig = () => {
     };
   }
   if (knownOrigins.length) return { allowAll: false, origins: [...knownOrigins] };
-  return { allowAll: true, origins: [] }; // Backwards compatibility
+  // Nothing configured: allow no cross-origin caller rather than reflecting
+  // whatever origin asks, which combined with credentials:true would let any
+  // site read authenticated responses. Same-origin requests carry no Origin
+  // (or are permitted by the browser's own policy), so the normal setup —
+  // frontend and API on one host — is unaffected. Declare CORS_ORIGINS,
+  // PUBLIC_URL or INTERNAL_URL to allow a real cross-origin client.
+  return { allowAll: false, origins: [] };
 };
 
 const corsConfig = buildCorsConfig();
@@ -214,12 +225,47 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  // Ten minutes of not asking the same question again.
+  //
+  // The client sends `X-Requested-With` so that an authenticating proxy answers
+  // an expired session with a 401 instead of redirecting a fetch to a sign-in
+  // page it cannot follow. That header is not one of the few CORS treats as
+  // safe, so on a cross-origin deployment every plain GET now needs a preflight
+  // first — and without a lifetime on the answer, every single one of them.
+  //
+  // Nothing changes for the usual deployment, where the image serves the
+  // application and the API from one origin and CORS never enters into it.
+  maxAge: 600,
 };
 
 // --- HTTP server timeouts ---
 const requestTimeoutMs = (() => {
   const value = env.HTTP_TIMEOUT;
   return Number.isFinite(value) && value >= 0 ? value : 0;
+})();
+
+const uploadInactivityTimeoutMs = (() => {
+  const value = env.UPLOAD_INACTIVITY_TIMEOUT;
+  return Number.isFinite(value) && value >= 0 ? value : 120000;
+})();
+
+const uploadStorageReserveBytes = (() => {
+  const value = parseByteSize(env.UPLOAD_STORAGE_RESERVE);
+  return Number.isFinite(value) && value >= 0 ? value : 64 * 1024 * 1024;
+})();
+
+const tusUploadDir = env.TUS_UPLOAD_DIR
+  ? path.resolve(env.TUS_UPLOAD_DIR)
+  : path.join(cacheDir, 'tus-uploads');
+
+const tusIncompleteUploadTtlMs = (() => {
+  const value = env.TUS_INCOMPLETE_UPLOAD_TTL_MS;
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 60 * 60 * 1000;
+})();
+
+const tusCleanupIntervalMs = (() => {
+  const value = env.TUS_CLEANUP_INTERVAL_MS;
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 10 * 60 * 1000;
 })();
 
 // --- Auth ---
@@ -241,7 +287,8 @@ const authMode = determineAuthMode();
 
 const auth = {
   enabled: authMode === 'disabled' ? false : env.AUTH_ENABLED !== false,
-  sessionSecret: env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  // Configured, or generated once and kept in CONFIG_DIR — see sessionSecret.js.
+  sessionSecret: resolveSessionSecret({ configured: env.SESSION_SECRET, configDir }),
   sessionMaxAgeMs: env.SESSION_MAX_AGE_DAYS * 24 * 60 * 60 * 1000, // Convert days to milliseconds
   mode: authMode,
   oidc: {
@@ -262,21 +309,140 @@ const auth = {
   },
 };
 
+const deriveSecret = (purpose) =>
+  crypto.createHmac('sha256', auth.sessionSecret).update(`nextexplorer:${purpose}`).digest('hex');
+
 // --- Search ---
 const searchMaxFileSizeBytes = (() => {
   const parsed = parseByteSize(env.SEARCH_MAX_FILESIZE);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 5 * 1024 * 1024;
 })();
 
+// --- Uploads ---
+// Ceilings for direct (non-chunked) uploads. They exist so a single request
+// cannot stream until the disk is full; they are generous on purpose, since
+// large files are a normal use of a file manager. Chunked uploads have their
+// own storage guard in the TUS service.
+/**
+ * What the inline text editor opens, and what a JSON request body may weigh.
+ *
+ * They are one decision rather than two. The editor sends a file back through
+ * a JSON body when it saves it, so a body limit under the size the editor
+ * opens produces a file that opens and cannot be saved — answered with
+ * "request entity too large", which names neither setting.
+ *
+ * Escaping is why the body has to be worth more than the file: in the worst
+ * case every character of the content is a quote, a backslash or a newline and
+ * becomes two, and the path travels in the same body. A file whose bytes would
+ * expand further than that is one the editor refuses to open anyway, as
+ * binary.
+ */
+const JSON_ESCAPE_WORST_CASE = 2;
+const JSON_BODY_OVERHEAD_BYTES = 64 * 1024;
+const DEFAULT_JSON_BODY_BYTES = 8 * 1024 * 1024;
+
+const bodyNeededFor = (fileBytes) => fileBytes * JSON_ESCAPE_WORST_CASE + JSON_BODY_OVERHEAD_BYTES;
+const fileAllowedBy = (bodyBytes) =>
+  Math.max(0, Math.floor((bodyBytes - JSON_BODY_OVERHEAD_BYTES) / JSON_ESCAPE_WORST_CASE));
+
+const { editorMaxFileSizeBytes, maxJsonBodyBytes } = (() => {
+  const parsedEditor = parseByteSize(env.EDITOR_MAX_FILESIZE);
+  // Default: 2 MiB if not configured or invalid
+  const editorAsked =
+    Number.isFinite(parsedEditor) && parsedEditor > 0 ? parsedEditor : 2 * 1024 * 1024;
+
+  const parsedBody = parseByteSize(env.MAX_JSON_BODY_SIZE);
+  const bodyWasChosen = Number.isFinite(parsedBody) && parsedBody > 0;
+
+  // A body limit someone set is a ceiling they meant — it is a guard, not a
+  // detail — so it is never raised from here. The editor is what gives way,
+  // and it gives way by refusing to open what it could not save back.
+  if (bodyWasChosen) {
+    const allowed = fileAllowedBy(parsedBody);
+    if (editorAsked > allowed) {
+      logger.warn(
+        { editorAsked, loweredTo: allowed, maxJsonBodyBytes: parsedBody },
+        'EDITOR_MAX_FILESIZE is larger than MAX_JSON_BODY_SIZE can carry back and has been ' +
+          'lowered to match; the editor would otherwise open files it could not save'
+      );
+    }
+    return { editorMaxFileSizeBytes: Math.min(editorAsked, allowed), maxJsonBodyBytes: parsedBody };
+  }
+
+  // Nobody chose the body limit, so the editor's size is the only wish there
+  // is to honour: the default body limit rises to carry it.
+  const needed = bodyNeededFor(editorAsked);
+  if (needed > DEFAULT_JSON_BODY_BYTES) {
+    logger.info(
+      { editorMaxFileSizeBytes: editorAsked, maxJsonBodyBytes: needed },
+      'Raised the JSON body limit above its default so the text editor can save what it opens'
+    );
+  }
+
+  return {
+    editorMaxFileSizeBytes: editorAsked,
+    maxJsonBodyBytes: Math.max(DEFAULT_JSON_BODY_BYTES, needed),
+  };
+})();
+
+const uploads = {
+  maxJsonBodyBytes,
+  maxDirectUploadBytes: (() => {
+    const parsed = parseByteSize(env.MAX_DIRECT_UPLOAD_SIZE);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 64 * 1024 * 1024 * 1024;
+  })(),
+  maxFilesPerRequest: env.MAX_FILES_PER_UPLOAD,
+  // One section for everything about taking an upload, as this repository has
+  // always had it: what a direct request may carry, how long a stalled one is
+  // waited for, where the resumable ones are kept, and the free space held back
+  // so a full volume never takes the database down with it.
+  inactivityTimeoutMs: uploadInactivityTimeoutMs,
+  tusUploadDir,
+  tusIncompleteUploadTtlMs,
+  tusCleanupIntervalMs,
+  storageReserveBytes: uploadStorageReserveBytes,
+};
+
 // --- OnlyOffice ---
 const onlyoffice = {
   serverUrl: env.ONLYOFFICE_URL?.replace(/\/$/, '') || null,
-  secret: env.ONLYOFFICE_SECRET || env.SESSION_SECRET || auth.sessionSecret,
+  // Never hand the session signing secret to an external service. When no
+  // dedicated secret is configured, derive a distinct one so the value shared
+  // with the Document Server cannot be used to forge session cookies.
+  //
+  // This used to fall back to SESSION_SECRET verbatim, so a deployment that set
+  // the Document Server's JWT_SECRET to that value worked without ever setting
+  // ONLYOFFICE_SECRET. It no longer matches — see the warning emitted below.
+  secret: env.ONLYOFFICE_SECRET || deriveSecret('onlyoffice'),
+  // Extra origins the Document Server may serve saved documents from, for
+  // deployments where it reports a different host than the one we call.
+  downloadOrigins: parseOriginList(env.ONLYOFFICE_DOWNLOAD_ORIGINS, 'ONLYOFFICE_DOWNLOAD_ORIGINS'),
   lang: env.ONLYOFFICE_LANG,
   forceSave: env.ONLYOFFICE_FORCE_SAVE,
+  forceSaveTimeoutMs: Math.min(30000, Math.max(7000, env.ONLYOFFICE_FORCE_SAVE_TIMEOUT_MS)),
+  autoSaveIntervalMs: Math.min(300000, Math.max(0, env.ONLYOFFICE_AUTO_SAVE_INTERVAL_MS)),
   extensions: env.ONLYOFFICE_FILE_EXTENSIONS.split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
+};
+
+// Silent JWT mismatches surface to the user as "Document security token is not
+// correctly configured", with nothing in the logs pointing at the cause.
+if (onlyoffice.serverUrl && !env.ONLYOFFICE_SECRET) {
+  console.warn(
+    '[config] ONLYOFFICE_URL is set without ONLYOFFICE_SECRET. A derived secret is used, ' +
+      'which will not match the Document Server unless its JWT_SECRET is set to the same ' +
+      'value. Set ONLYOFFICE_SECRET on both sides.'
+  );
+}
+
+// --- Thumbnails served outside /api ---
+// Its own secret, so a leaked thumbnail URL cannot be turned into anything
+// else. Derived from the session secret, so it lasts as long as that does; when
+// even that could not be stored, a restart only means already-loaded pages
+// refetch their thumbnails.
+const thumbnailAccess = {
+  secret: deriveSecret('thumbnails'),
 };
 
 // --- Collabora (WOPI) ---
@@ -296,47 +462,36 @@ const collabora = {
 };
 
 // --- Editor ---
-const editorMaxFileSizeBytes = (() => {
-  const parsed = parseByteSize(env.EDITOR_MAX_FILESIZE);
-  // Default: 2 MiB if not configured or invalid
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2 * 1024 * 1024;
-})();
-
 const editor = {
   extensions: parseExtensionList(env.EDITOR_EXTENSIONS),
   maxFileSizeBytes: editorMaxFileSizeBytes,
 };
 
-// --- Terminal ---
-const terminal = {
-  extensions: parseExtensionList(env.TERMINAL_FILE_EXTENSIONS),
-};
-
-// --- Favorites ---
-const favorites = {
-  defaultIcon: env.FAVORITES_DEFAULT_ICON,
-};
-
-// --- Personal folders ---
-const personal = {
-  userFolderNameOrder: parseUserFolderNameOrder(env.USER_FOLDER_NAME_ORDER),
-};
-
-// --- Hidden file patterns ---
-const hiddenFiles = parseHiddenFilePatterns(env.HIDDEN_FILE_PATTERNS);
-
-// --- Shares ---
-const shares = {
-  enabled: env.SHARES_ENABLED,
-  tokenLength: env.SHARES_TOKEN_LENGTH,
-  maxSharesPerUser: env.SHARES_MAX_PER_USER,
-  defaultExpiryDays: env.SHARES_DEFAULT_EXPIRY_DAYS,
-  guestSessionHours: env.SHARES_GUEST_SESSION_HOURS,
-  allowPasswordProtection: env.SHARES_ALLOW_PASSWORD,
-  allowAnonymous: env.SHARES_ALLOW_ANONYMOUS,
-};
-
-// --- Main Export ---
+/**
+ * How much of a document the preview will render.
+ *
+ * Not the same question as what the editor will open, and the difference is
+ * why this is a setting of its own. The editor streams text into a code view;
+ * the preview parses the document, sanitises the HTML it produces and then
+ * hands the browser every node to lay out — all on the one thread the
+ * interface has. A six-megabyte markdown file opens in the editor and freezes
+ * the tab in the preview, on the same machine, from the same file.
+ *
+ * It was hard-coded before this, which meant someone who raised
+ * EDITOR_MAX_FILESIZE in good faith was refused at a number that appeared in
+ * no setting and no document.
+ *
+ * Generous by default because freezing is no longer the failure mode: the
+ * preview renders in slices of a frame and hands the browser back between
+ * them. What is left is the weight of the document in the tab, which is a
+ * reader's problem rather than an application's. And the preview reads through
+ * the editor's endpoint, so EDITOR_MAX_FILESIZE already caps what can reach
+ * it — this only bites when it is set lower than that.
+ */
+const previewMaxRenderBytes = (() => {
+  const parsed = parseByteSize(env.PREVIEW_MAX_RENDER_SIZE);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 16 * 1024 * 1024;
+})();
 
 // --- Archive extraction ---
 // Extensions the app is willing to offer for extraction, provided the local
@@ -376,11 +531,22 @@ const archives = (() => {
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 32 * 1024 * 1024 * 1024;
     })(),
     maxEntries: env.MAX_ARCHIVE_ENTRIES,
-    // Cap on the total size of the files in one zip DOWNLOAD (folder or
-    // multi-file download, direct share link). Default 20G; "0" turns it off.
-    maxDownloadZipBytes: (() => {
-      const parsed = parseByteSize(env.MAX_DOWNLOAD_ZIP_SIZE);
-      return Number.isFinite(parsed) ? parsed : 20 * 1024 * 1024 * 1024;
+    // A compound archive — a .tar.gz and its family — is two archives, and the
+    // inner one has to be decompressed before anything inside it can be named.
+    // Above this it is not: browsing a backup by unpacking it first would
+    // betray the whole point, and extracting it is the operation that exists
+    // for that. The number is the inner archive's own declared size, so the
+    // refusal comes before anything is written.
+    browseMaxBytes: (() => {
+      const parsed = parseByteSize(env.MAX_BROWSABLE_ARCHIVE_SIZE);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 2 * 1024 * 1024 * 1024;
+    })(),
+    // What those decompressed copies may take up altogether. They are a
+    // convenience and are made again whenever they are missing, so the least
+    // recently opened goes first when this is passed.
+    cacheMaxBytes: (() => {
+      const parsed = parseByteSize(env.ARCHIVE_CACHE_MAX_SIZE);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 8 * 1024 * 1024 * 1024;
     })(),
   };
   if (!raw) return { extensions: DEFAULT_ARCHIVE_EXTENSIONS, ...limits };
@@ -390,6 +556,93 @@ const archives = (() => {
   return {
     extensions: extend ? [...new Set([...DEFAULT_ARCHIVE_EXTENSIONS, ...list])] : list,
     ...limits,
+  };
+})();
+
+// --- Terminal ---
+const terminal = {
+  extensions: parseExtensionList(env.TERMINAL_FILE_EXTENSIONS),
+};
+
+// --- Favorites ---
+const favorites = {
+  defaultIcon: env.FAVORITES_DEFAULT_ICON,
+};
+
+// --- Personal folders ---
+const personal = {
+  userFolderNameOrder: parseUserFolderNameOrder(env.USER_FOLDER_NAME_ORDER),
+};
+
+// --- Hidden file patterns ---
+const hiddenFiles = parseHiddenFilePatterns(env.HIDDEN_FILE_PATTERNS);
+
+// --- Trash ---
+// Defaults only: the values in force are the system settings, which start from
+// these. Out-of-range values fall back rather than failing the start.
+const trash = (() => {
+  const retentionDays = Number(env.TRASH_RETENTION_DAYS);
+  const maxPercent = Number(env.TRASH_MAX_PERCENT);
+  const maxBytes = env.TRASH_MAX_SIZE ? parseByteSize(env.TRASH_MAX_SIZE) : null;
+  return {
+    enabled: env.TRASH_ENABLED !== false,
+    retentionDays:
+      Number.isFinite(retentionDays) && retentionDays >= 1
+        ? Math.min(3650, Math.round(retentionDays))
+        : 30,
+    maxPercent:
+      Number.isFinite(maxPercent) && maxPercent >= 1 ? Math.min(90, Math.round(maxPercent)) : 10,
+    maxBytes: Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : null,
+  };
+})();
+
+// --- File versions ---
+// Defaults only, like the trash's: the values in force are the system settings.
+const VERSION_BOUNDS = {
+  keepAllHours: [1, 720, 24],
+  hourlyDays: [1, 365, 7],
+  dailyDays: [1, 3650, 30],
+  maxPerFile: [1, 1000, 50],
+  sessionCheckpointMinutes: [1, 1440, 10],
+};
+const versions = (() => {
+  const integer = (raw, [min, max, fallback]) => {
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= min ? Math.min(max, Math.round(value)) : fallback;
+  };
+  return {
+    enabled: env.VERSIONS_ENABLED !== false,
+    keepAllHours: integer(env.VERSIONS_KEEP_ALL_HOURS, VERSION_BOUNDS.keepAllHours),
+    hourlyDays: integer(env.VERSIONS_HOURLY_DAYS, VERSION_BOUNDS.hourlyDays),
+    dailyDays: integer(env.VERSIONS_DAILY_DAYS, VERSION_BOUNDS.dailyDays),
+    maxPerFile: integer(env.VERSIONS_MAX_PER_FILE, VERSION_BOUNDS.maxPerFile),
+    sessionCheckpointMinutes: integer(
+      env.VERSIONS_SESSION_CHECKPOINT_MINUTES,
+      VERSION_BOUNDS.sessionCheckpointMinutes
+    ),
+  };
+})();
+// --- Passkeys ---
+// The relying party: the name a passkey is bound to. Left unset, each request
+// answers for the hostname it arrived on, which is right until an installation
+// is reached through two names — a passkey made on one is refused on the other,
+// by design, and WEBAUTHN_RP_ID is how an operator settles which name counts.
+const webauthn = {
+  rpId: env.WEBAUTHN_RP_ID,
+  rpName: env.WEBAUTHN_RP_NAME || 'NextExplorer',
+};
+
+// --- Activity log ---
+// Defaults only, like the trash's. Off: on a machine one person uses, a record
+// of what that person did all day is weight without a reader.
+const activity = (() => {
+  const retentionDays = Number(env.ACTIVITY_RETENTION_DAYS);
+  return {
+    enabled: env.ACTIVITY_ENABLED === true,
+    retentionDays:
+      Number.isFinite(retentionDays) && retentionDays >= 1
+        ? Math.min(3650, Math.round(retentionDays))
+        : 90,
   };
 })();
 
@@ -435,10 +688,57 @@ const folderSize = {
       : 2,
   rebuild: env.FOLDER_SIZE_REBUILD,
 };
+// --- Runtime diagnostics ---
+const atLeast = (value, minimum, fallback) =>
+  Number.isFinite(value) && value >= minimum ? value : fallback;
 
+const performanceDiagnostics = {
+  enabled: env.PERFORMANCE_DIAGNOSTICS_ENABLED,
+  intervalMs: atLeast(env.PERFORMANCE_DIAGNOSTICS_INTERVAL_MS, 5000, 15000),
+  logEveryInterval: env.PERFORMANCE_DIAGNOSTICS_LOG_EVERY_INTERVAL,
+  cpuThreshold: atLeast(env.PERFORMANCE_DIAGNOSTICS_CPU_THRESHOLD, 1, 75),
+  rssThresholdMb: atLeast(env.PERFORMANCE_DIAGNOSTICS_RSS_THRESHOLD_MB, 1, 768),
+  eventLoopDelayThresholdMs: atLeast(env.PERFORMANCE_DIAGNOSTICS_EVENT_LOOP_DELAY_MS, 1, 250),
+};
+// --- Shares ---
+const shares = {
+  enabled: env.SHARES_ENABLED,
+  tokenLength: env.SHARES_TOKEN_LENGTH,
+  maxSharesPerUser: env.SHARES_MAX_PER_USER,
+  defaultExpiryDays: env.SHARES_DEFAULT_EXPIRY_DAYS,
+  guestSessionHours: env.SHARES_GUEST_SESSION_HOURS,
+  allowPasswordProtection: env.SHARES_ALLOW_PASSWORD,
+  allowAnonymous: env.SHARES_ALLOW_ANONYMOUS,
+};
+
+// --- Demo sign-in ---
+// A password served to anyone who loads the sign-in page. That is right for a
+// public demo and wrong everywhere else, so it takes three deliberate things at
+// once: demo mode on, and both halves of a credential named for this purpose.
+// Any one of them missing and nothing is published — no partial state, no way
+// to arrive here by setting something that meant something else.
+const demoLoginRequested = Boolean(env.DEMO_LOGIN_EMAIL || env.DEMO_LOGIN_PASSWORD);
+const demoLogin =
+  env.DEMO_MODE && env.DEMO_LOGIN_EMAIL && env.DEMO_LOGIN_PASSWORD
+    ? { email: env.DEMO_LOGIN_EMAIL, password: env.DEMO_LOGIN_PASSWORD }
+    : null;
+
+if (demoLogin) {
+  console.warn(
+    `[Config] Demo sign-in enabled: ${demoLogin.email} and its password are served to anyone who opens the sign-in page.`
+  );
+} else if (demoLoginRequested && !env.DEMO_MODE) {
+  console.warn(
+    '[Config] DEMO_LOGIN_EMAIL/DEMO_LOGIN_PASSWORD are set but DEMO_MODE is not enabled; no credentials are published and the sign-in form is not pre-filled.'
+  );
+} else if (demoLoginRequested) {
+  console.warn(
+    '[Config] DEMO_LOGIN_EMAIL and DEMO_LOGIN_PASSWORD must both be set; the sign-in form will not be pre-filled.'
+  );
+}
+
+// --- Main Export ---
 module.exports = {
-  folderSize,
-  archives,
   port: env.PORT,
   address: env.ADDRESS,
   http: {
@@ -466,6 +766,8 @@ module.exports = {
   corsOptions,
 
   auth,
+  demoLogin,
+  preview: { maxRenderBytes: previewMaxRenderBytes },
 
   search: {
     deep: env.SEARCH_DEEP ?? true,
@@ -538,13 +840,23 @@ module.exports = {
   },
 
   thumbnails: { size: 200, quality: 70 },
+  uploads,
   onlyoffice,
+  thumbnailAccess,
   collabora,
   editor,
   terminal,
   favorites,
   shares,
   hiddenFiles,
+  folderSize,
+  performanceDiagnostics,
+  archives,
+  trash,
+  versions,
+  webauthn,
+  activity,
+  VERSION_BOUNDS,
 
   features: {
     volumeUsage: env.SHOW_VOLUME_USAGE,

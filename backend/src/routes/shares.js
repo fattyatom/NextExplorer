@@ -2,14 +2,18 @@ const express = require('express');
 const fs = require('fs/promises');
 const fss = require('fs');
 const path = require('path');
-const archiver = require('archiver');
+const { ZipArchive } = require('archiver');
+const rateLimit = require('express-rate-limit');
 const asyncHandler = require('../utils/asyncHandler');
+const { sendTextFile } = require('../utils/textFileResponse');
 const {
   ValidationError,
   UnauthorizedError,
   NotFoundError,
   ForbiddenError,
+  RateLimitError,
 } = require('../errors/AppError');
+const { ErrorCodes } = require('../errors/errorCodes');
 const {
   createShare,
   getShareById,
@@ -22,20 +26,84 @@ const {
   hasUserPermission,
   isShareExpired,
   trackShareAccess,
+  trackShareDownload,
   getShareStats,
 } = require('../services/sharesService');
 const { createGuestSession } = require('../services/guestSessionService');
 const { normalizeRelativePath, parsePathSpace } = require('../utils/pathUtils');
 const { pathExists } = require('../utils/fsUtils');
-const { resolvePathWithAccess } = require('../services/accessManager');
+const { parseByteRange } = require('../utils/httpRange');
+const { resolvePathWithAccess, sharePasswordApplies } = require('../services/accessManager');
 const { extensions, mimeTypes } = require('../config/index');
+const env = require('../config/env');
 const { getSettings, getUserSettings } = require('../services/settingsService');
 const { listDirectoryItems } = require('../services/directoryListingService');
 const { encodeContentDisposition } = require('./files/utils');
-const { assertZipWithinLimit } = require('../services/zipDownloadLimit');
+const { collectArchiveEntries, appendEntries } = require('../services/archiveTree');
 const logger = require('../utils/logger');
+const {
+  readTextFileHead,
+  encodeText,
+  MAX_EDITOR_FILE_SIZE,
+} = require('../services/textEditorService');
+const versions = require('../services/versions/operations');
+const activityLog = require('../services/activityLog');
+const versionsService = require('../services/versions');
+const { rightsFrom: versionRights } = versionsService;
+const { clientAddress } = require('../utils/clientAddress');
 
 const router = express.Router();
+
+// Verifying a share password runs bcrypt, so an unlimited endpoint is both a
+// brute-force surface and a way to keep the event loop busy. Share links are
+// public, so this is the only barrier in front of that hash.
+const sharePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res, next, options) => {
+    const retryAfterSeconds = Math.ceil(options.windowMs / 1000);
+    next(
+      new RateLimitError(
+        'Too many attempts. Please wait before trying this link again.',
+        retryAfterSeconds,
+        ErrorCodes.RATE_LIMIT_EXCEEDED
+      )
+    );
+  },
+});
+
+/**
+ * Guest session cookies follow the same rules as the login session cookie:
+ * secure whenever the request reached us over HTTPS (directly or through a
+ * trusted proxy), so the cookie is not replayed in clear text.
+ */
+const guestSessionCookieOptions = (req) => ({
+  httpOnly: true,
+  maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  sameSite: 'lax',
+  secure: req.secure === true,
+  // Root path, not /api: thumbnails are served from /static, and an <img>
+  // cannot carry the X-Guest-Session header the API client uses. Scoping the
+  // cookie to /api left share visitors with broken thumbnails.
+  path: '/',
+});
+
+/**
+ * Set the guest session cookie, clearing the /api-scoped one first.
+ *
+ * An earlier build scoped this cookie to /api. Browsers keep both when the
+ * path differs, and RFC 6265 sends the longer path first, so on every /api
+ * request cookie-parser would read the stale value and shadow the session we
+ * just created — a dead end the visitor could not fix by retyping the
+ * password. Deleting it here reaches exactly the people affected, since every
+ * share visitor goes through one of these three endpoints.
+ */
+const setGuestSessionCookie = (req, res, sessionId) => {
+  res.clearCookie('guestSession', { path: '/api' });
+  res.cookie('guestSession', sessionId, guestSessionCookieOptions(req));
+};
 
 const buildPublicBaseUrl = (req) => {
   const { public: publicConfig } = require('../config/index');
@@ -164,7 +232,7 @@ const buildDirectFilePath = (shareToken, innerPath = '', mode = 'auto') => {
   const query = normalizedMode === 'auto' ? '' : `?mode=${encodeURIComponent(normalizedMode)}`;
   const pathPart = encodedInnerPath
     ? `/api/share/${encodedToken}/file/${encodedInnerPath}`
-    : `/api/share/${encodedToken}/file`;
+    : `/api/share/${encodedToken}`;
   return `${pathPart}${query}`;
 };
 
@@ -206,34 +274,23 @@ const streamResolvedFile = async ({ absolutePath, stats, mode, req, res }) => {
     'X-Robots-Tag': 'noindex',
   };
 
-  const rangeHeader = req.headers.range;
-  if (rangeHeader) {
-    const bytesPrefix = 'bytes=';
-    if (!rangeHeader.startsWith(bytesPrefix)) {
-      res.status(416).send('Malformed Range header');
-      return;
-    }
-
-    const [startString, endString] = rangeHeader.slice(bytesPrefix.length).split('-');
-    let start = Number(startString);
-    let end = endString ? Number(endString) : stats.size - 1;
-
-    if (Number.isNaN(start)) start = 0;
-    if (Number.isNaN(end) || end >= stats.size) end = stats.size - 1;
-
-    if (start > end) {
-      res.status(416).send('Range Not Satisfiable');
-      return;
-    }
-
-    const chunkSize = end - start + 1;
+  const range = parseByteRange(req.headers.range, stats.size);
+  if (range?.malformed) {
+    res.status(416).send('Malformed Range header');
+    return;
+  }
+  if (range?.unsatisfiable) {
+    res.status(416).send('Range Not Satisfiable');
+    return;
+  }
+  if (range) {
     res.writeHead(206, {
       ...baseHeaders,
-      'Content-Range': `bytes ${start}-${end}/${stats.size}`,
+      'Content-Range': `bytes ${range.start}-${range.end}/${stats.size}`,
       'Accept-Ranges': 'bytes',
-      'Content-Length': chunkSize,
+      'Content-Length': range.chunkSize,
     });
-    streamFile({ start, end });
+    streamFile({ start: range.start, end: range.end });
     return;
   }
 
@@ -245,21 +302,24 @@ const streamResolvedFile = async ({ absolutePath, stats, mode, req, res }) => {
   streamFile();
 };
 
-const streamResolvedDirectoryZip = async ({ absolutePath, archiveName, res }) => {
+const streamResolvedDirectoryZip = async ({
+  absolutePath,
+  logicalPath,
+  context,
+  archiveName,
+  res,
+}) => {
   const safeArchiveName = archiveName && archiveName.trim() ? archiveName.trim() : 'download';
   const filename = safeArchiveName.toLowerCase().endsWith('.zip')
     ? safeArchiveName
     : `${safeArchiveName}.zip`;
-
-  // Before any header goes out, so the refusal is a normal JSON error.
-  await assertZipWithinLimit([absolutePath]);
 
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', encodeContentDisposition(filename, 'attachment'));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Robots-Tag', 'noindex');
 
-  const archive = archiver('zip', { zlib: { level: 1 } });
+  const archive = new ZipArchive({ zlib: { level: 1 } });
   archive.on('error', (archiveError) => {
     logger.error({ err: archiveError }, 'Direct share archive creation failed');
     if (!res.headersSent) {
@@ -270,7 +330,18 @@ const streamResolvedDirectoryZip = async ({ absolutePath, archiveName, res }) =>
   });
 
   archive.pipe(res);
-  archive.directory(absolutePath, path.basename(absolutePath) || safeArchiveName);
+  // What the share lets its visitor see, not everything below its folder: the
+  // trash zone, a personal root and the paths an access rule hides stay out.
+  const stats = await fs.stat(absolutePath);
+  const { entries } = await collectArchiveEntries(context, [
+    {
+      absolutePath,
+      logicalPath,
+      entryName: path.basename(absolutePath) || safeArchiveName,
+      stats,
+    },
+  ]);
+  appendEntries(archive, entries);
   await archive.finalize();
 };
 
@@ -287,6 +358,13 @@ router.post(
     const {
       sourcePath,
       accessMode = 'readonly',
+      allowDelete = true,
+      allowCreateFolder = true,
+      allowCreateFile = true,
+      allowUpload = true,
+      allowDownload = true,
+      versionsVisible,
+      versionsDownload,
       sharingType = 'anyone',
       password,
       userIds,
@@ -358,6 +436,13 @@ router.post(
       sourcePath: sourcePathForDb,
       isDirectory,
       accessMode,
+      allowDelete,
+      allowCreateFolder,
+      allowCreateFile,
+      allowUpload,
+      allowDownload,
+      versionsVisible,
+      versionsDownload,
       sharingType,
       password,
       userIds: sharingType === 'users' ? userIds : [],
@@ -369,6 +454,14 @@ router.post(
     const baseUrl = buildPublicBaseUrl(req);
     const shareUrl = `${baseUrl}/share/${share.shareToken}`;
     const directFileUrl = `${baseUrl}${buildDirectFilePath(share.shareToken)}`;
+
+    await activityLog.record({
+      action: 'share.create',
+      user: req.user,
+      target: share.sourcePath,
+      detail: { label: share.label || null, expiresAt: share.expiresAt || null },
+      req,
+    });
 
     res.status(201).json({
       ...share,
@@ -416,6 +509,16 @@ router.get(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
+    // This router is mounted under both /api/shares (management) and
+    // /api/share (public links). The exact public token URL must be handled
+    // here before the management endpoint can interpret the token as a share
+    // ID. Named public routes have an additional path segment and do not match
+    // this route.
+    if (req.baseUrl === '/api/share') {
+      req.params.token = req.params.id;
+      return handleDirectFileRequest(req, res);
+    }
+
     if (!req.user || !req.user.id) {
       throw new UnauthorizedError('Authentication required');
     }
@@ -466,6 +569,18 @@ router.put(
 
     if ('accessMode' in req.body) {
       updates.accessMode = req.body.accessMode;
+    }
+
+    for (const key of [
+      'allowDelete',
+      'allowCreateFolder',
+      'allowCreateFile',
+      'allowUpload',
+      'allowDownload',
+      'versionsVisible',
+      'versionsDownload',
+    ]) {
+      if (key in req.body) updates[key] = req.body[key];
     }
 
     if ('sharingType' in req.body) {
@@ -524,6 +639,13 @@ router.delete(
     }
 
     await deleteShare(share.id);
+    await activityLog.record({
+      action: 'share.delete',
+      user: req.user,
+      target: share.sourcePath,
+      detail: { label: share.label || null },
+      req,
+    });
 
     res.status(204).end();
   })
@@ -541,12 +663,15 @@ router.get(
       throw new NotFoundError('Share not found');
     }
 
-    // Return limited public info
+    // Return limited public info. requiresPassword mirrors the backend rule
+    // rather than hasPassword alone, so the router does not send the owner to
+    // a password prompt the API would have let them skip.
     res.json({
       shareToken: share.shareToken,
       label: share.label,
       isDirectory: share.isDirectory,
       hasPassword: share.hasPassword,
+      requiresPassword: sharePasswordApplies(share, req.user),
       sharingType: share.sharingType,
       expiresAt: share.expiresAt,
       isExpired: isShareExpired(share),
@@ -559,6 +684,7 @@ router.get(
  */
 router.post(
   '/:token/verify',
+  sharePasswordLimiter,
   asyncHandler(async (req, res) => {
     const { password } = req.body;
 
@@ -578,27 +704,23 @@ router.post(
       if (share.sharingType === 'anyone') {
         const session = await createGuestSession({
           shareId: share.id,
-          ipAddress: req.ip,
+          ipAddress: clientAddress(req),
           userAgent: req.get('user-agent'),
         });
+        await trackShareAccess(share.id, { ipAddress: clientAddress(req) });
 
         // Set guest session cookie
-        res.cookie('guestSession', session.id, {
-          httpOnly: true,
-          maxAge: 24 * 60 * 60 * 1000, // 24 hours
-          sameSite: 'lax',
-          path: '/api', // Ensure cookie is sent for all /api/* requests
-        });
+        setGuestSessionCookie(req, res, session.id);
 
         res.json({
           success: true,
           guestSessionId: session.id,
         });
         return;
-      } else {
-        // User-specific share without password still requires auth
-        throw new UnauthorizedError('Authentication required');
       }
+
+      // User-specific share without password still requires auth
+      throw new UnauthorizedError('Authentication required');
     }
 
     // Verify password
@@ -612,17 +734,13 @@ router.post(
     if (share.sharingType === 'anyone') {
       const session = await createGuestSession({
         shareId: share.id,
-        ipAddress: req.ip,
+        ipAddress: clientAddress(req),
         userAgent: req.get('user-agent'),
       });
+      await trackShareAccess(share.id, { ipAddress: clientAddress(req) });
 
       // Set guest session cookie
-      res.cookie('guestSession', session.id, {
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'lax',
-        path: '/api', // Ensure cookie is sent for all /api/* requests
-      });
+      setGuestSessionCookie(req, res, session.id);
 
       res.json({
         success: true,
@@ -654,9 +772,6 @@ router.get(
       throw new ForbiddenError('Share has expired');
     }
 
-    // Track access
-    await trackShareAccess(share.id);
-
     // Check if user has permission
     if (share.sharingType === 'users') {
       if (!req.user || !req.user.id) {
@@ -670,24 +785,26 @@ router.get(
         throw new ForbiddenError('Access denied');
       }
     } else {
+      // A password protects the link from everyone but its owner. Being signed
+      // in is not knowing it, so an authenticated visitor is sent through the
+      // same prompt unless they already verified it (guest session) or own it.
+      if (sharePasswordApplies(share, req.user)) {
+        const verified = req.guestSession && req.guestSession.shareId === share.id;
+        if (!verified) {
+          throw new UnauthorizedError('Password verification required');
+        }
+      }
+
       // Anyone share - always create a new guest session for this share
       // This ensures switching between shares in the same browser works correctly
       if (!req.user) {
-        // Create guest session if no password required
-        if (!share.hasPassword) {
-          const session = await createGuestSession({
-            shareId: share.id,
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent'),
-          });
-
-          // Set guest session cookie (overwrites any existing session)
-          res.cookie('guestSession', session.id, {
-            httpOnly: true,
-            maxAge: 24 * 60 * 60 * 1000, // 24 hours
-            sameSite: 'lax',
-            path: '/api', // Ensure cookie is sent for all /api/* requests
-          });
+        // Unless there already is one for this share. Reloading the page calls
+        // here again, and a visitor who has just typed the password holds a
+        // session that says so — the check above has already accepted it. Not
+        // looking made the branch below ask for the password a second time,
+        // for a share it had just been given.
+        if (req.guestSession && req.guestSession.shareId === share.id) {
+          await trackShareAccess(share.id, { ipAddress: clientAddress(req) });
 
           return res.json({
             share: {
@@ -695,14 +812,42 @@ router.get(
               label: share.label,
               sourcePath: `share/${share.shareToken}`,
               accessMode: share.accessMode,
+              allowDownload: share.allowDownload !== false,
+              isDirectory: share.isDirectory,
+            },
+            guestSessionId: req.guestSession.id,
+          });
+        }
+
+        // Create guest session if no password required
+        if (!share.hasPassword) {
+          const session = await createGuestSession({
+            shareId: share.id,
+            ipAddress: clientAddress(req),
+            userAgent: req.get('user-agent'),
+          });
+          await trackShareAccess(share.id, { ipAddress: clientAddress(req) });
+
+          // Set guest session cookie (overwrites any existing session)
+          setGuestSessionCookie(req, res, session.id);
+
+          return res.json({
+            share: {
+              shareToken: share.shareToken,
+              label: share.label,
+              sourcePath: `share/${share.shareToken}`,
+              accessMode: share.accessMode,
+              allowDownload: share.allowDownload !== false,
               isDirectory: share.isDirectory,
             },
             guestSessionId: session.id,
           });
-        } else {
-          throw new UnauthorizedError('Password verification required');
         }
+
+        throw new UnauthorizedError('Password verification required');
       }
+
+      await trackShareAccess(share.id, { ipAddress: clientAddress(req) });
     }
 
     // Return share access info
@@ -712,6 +857,7 @@ router.get(
         label: share.label,
         sourcePath: `share/${share.shareToken}`,
         accessMode: share.accessMode,
+        allowDownload: share.allowDownload !== false,
         isDirectory: share.isDirectory,
         expiresAt: share.expiresAt,
       },
@@ -720,15 +866,18 @@ router.get(
   })
 );
 
-const handleDirectFileRequest = async (req, res) => {
+const resolveSharedFileTarget = async (
+  req,
+  res,
+  { requireDownload = false, requireWrite = false, allowSharedFileName = false } = {}
+) => {
   const shareToken = req.params.token;
   const rawInnerPath = (req.params.splat || []).join('/');
-  const mode = normalizeDirectFileMode(req.query?.mode);
-  let innerPath = '';
+  let innerPath;
 
   try {
     innerPath = rawInnerPath ? normalizeRelativePath(rawInnerPath) : '';
-  } catch (error) {
+  } catch (_) {
     throw new ValidationError('Invalid file path.');
   }
 
@@ -742,13 +891,19 @@ const handleDirectFileRequest = async (req, res) => {
   }
 
   if (!share.isDirectory && innerPath) {
-    throw new NotFoundError('Path not found');
+    // File shares already identify their target. Permit only its exact name so
+    // friendly editor URLs work without opening arbitrary descendant paths.
+    const targetName = path.basename(share.sourcePath || '');
+    if (!allowSharedFileName || innerPath !== targetName) {
+      throw new NotFoundError('Path not found');
+    }
+    innerPath = '';
   }
 
   if (share.sharingType === 'users') {
     if (!req.user || !req.user.id) {
       redirectToShareAccess(req, res, shareToken);
-      return;
+      return null;
     }
 
     const permitted = await hasUserPermission(share.id, req.user.id);
@@ -763,7 +918,7 @@ const handleDirectFileRequest = async (req, res) => {
     if (share.hasPassword) {
       if (!guestSession || guestSession.shareId !== share.id) {
         redirectToShareAccess(req, res, shareToken);
-        return;
+        return null;
       }
     } else {
       // Public direct file links should work without first visiting the Web UI.
@@ -779,7 +934,8 @@ const handleDirectFileRequest = async (req, res) => {
     !accessInfo ||
     !accessInfo.canAccess ||
     !accessInfo.canRead ||
-    !accessInfo.canDownload ||
+    (requireDownload && !accessInfo.canDownload) ||
+    (requireWrite && !accessInfo.canWrite) ||
     !resolved
   ) {
     throw new ForbiddenError(accessInfo?.denialReason || 'File access not allowed.');
@@ -790,10 +946,40 @@ const handleDirectFileRequest = async (req, res) => {
   }
 
   const stats = await fs.stat(resolved.absolutePath);
+  return { share, innerPath, accessInfo, resolved, stats, context };
+};
+
+/**
+ * A file that left through a link.
+ *
+ * The share's own counters answer "how many"; this answers "which file, when,
+ * and from where" — the question somebody actually asks the day a link turns
+ * out to have been handed around. The person on the other end has no account,
+ * so the actor is the link itself.
+ */
+const recordShareDownload = ({ share, resolved, req }) =>
+  activityLog.record({
+    action: 'share.download',
+    user: req.user,
+    actor: req.user?.username || share.label || `link ${share.shareToken?.slice(0, 8)}`,
+    target: resolved.relativePath || share.sourcePath,
+    detail: { share: share.label || null, token: share.shareToken?.slice(0, 8) || null },
+    req,
+  });
+
+const handleDirectFileRequest = async (req, res) => {
+  const target = await resolveSharedFileTarget(req, res, { requireDownload: true });
+  if (!target) return;
+
+  const { share, resolved, stats, context } = target;
   if (stats.isDirectory()) {
-    await trackShareAccess(share.id);
+    // Directories are always delivered as a ZIP attachment.
+    await trackShareDownload(share.id, { ipAddress: clientAddress(req) });
+    await recordShareDownload({ share, resolved, req });
     await streamResolvedDirectoryZip({
       absolutePath: resolved.absolutePath,
+      logicalPath: resolved.relativePath,
+      context,
       archiveName:
         path.basename(resolved.absolutePath) ||
         share.label ||
@@ -804,18 +990,108 @@ const handleDirectFileRequest = async (req, res) => {
     return;
   }
 
-  await trackShareAccess(share.id);
-  await streamResolvedFile({ absolutePath: resolved.absolutePath, stats, mode, req, res });
+  // Count the hit the way the client receives the file: inline previews are
+  // accesses, attachment deliveries (explicit download mode or formats the
+  // browser cannot display) are downloads — same split as POST /api/download.
+  const mode = normalizeDirectFileMode(req.query?.mode);
+  const { disposition } = getDirectFilePresentation(path.basename(resolved.absolutePath), mode);
+  if (disposition === 'attachment') {
+    await trackShareDownload(share.id, { ipAddress: clientAddress(req) });
+    await recordShareDownload({ share, resolved, req });
+  } else {
+    await trackShareAccess(share.id, { ipAddress: clientAddress(req) });
+  }
+  await streamResolvedFile({
+    absolutePath: resolved.absolutePath,
+    stats,
+    mode,
+    req,
+    res,
+  });
 };
 
 /**
  * GET /api/share/:token/file/* - Open a shared file directly.
  *
- * This keeps the same share rules as the Web UI but streams the target file
- * itself, letting the browser preview supported formats or download others.
+ * The exact /api/share/:token alias is handled by the mounted router's
+ * management route above. It intentionally calls this same handler so token,
+ * expiry, password, guest-session and permission checks cannot drift apart.
+ * Keep /file routes for existing external integrations.
  */
 router.get('/:token/file', asyncHandler(handleDirectFileRequest));
 router.get('/:token/file/{*splat}', asyncHandler(handleDirectFileRequest));
+
+const handleSharedEditorRequest = async (req, res) => {
+  const target = await resolveSharedFileTarget(req, res, { allowSharedFileName: true });
+  if (!target) return;
+
+  const { share, innerPath, accessInfo, resolved } = target;
+  const name = path.basename(resolved.absolutePath);
+  const canDownload = Boolean(accessInfo.canDownload);
+  const canWrite = Boolean(accessInfo.canWrite);
+
+  await sendTextFile(req, res, {
+    absolutePath: resolved.absolutePath,
+    // What the answer says besides the text is part of its identity: a share
+    // turned read-only must never be answered 304 to an editor that still
+    // offers to save, nor a renamed file under its old name.
+    describe: { name, path: innerPath, canDownload, canWrite },
+    headers: { 'X-Content-Type-Options': 'nosniff', 'X-Robots-Tag': 'noindex' },
+    // A revalidation is still somebody opening the file.
+    onAnswer: () => trackShareAccess(share.id, { ipAddress: clientAddress(req) }),
+    render: ({ text }) => ({ name, path: innerPath, content: text, canDownload, canWrite }),
+  });
+};
+
+/**
+ * GET /api/share/:token/editor/* - Read a shared text file.
+ */
+router.get('/:token/editor', asyncHandler(handleSharedEditorRequest));
+router.get('/:token/editor/{*splat}', asyncHandler(handleSharedEditorRequest));
+
+const handleSharedEditorSaveRequest = async (req, res) => {
+  const target = await resolveSharedFileTarget(req, res, {
+    requireWrite: true,
+    allowSharedFileName: true,
+  });
+  if (!target) return;
+
+  const { share, resolved } = target;
+  const { content } = req.body || {};
+  if (typeof content !== 'string') {
+    throw new ValidationError('Text editor content must be a string.');
+  }
+  // Reuse the editor's text validation before writing so a writable share
+  // cannot be used to modify directories, binaries, or oversized files. It also
+  // says what the file is written in, so the save keeps that. From the head of
+  // the file: this asked for the whole of it, decoded, to read three bytes.
+  const { encoding } = await readTextFileHead(resolved.absolutePath);
+  const payload = encodeText(content, encoding);
+  if (payload.length > MAX_EDITOR_FILE_SIZE) {
+    throw new ValidationError('This file is too large to save in the text editor.');
+  }
+
+  // Written beside the file and renamed over it, like every other save, so what
+  // a visitor replaces is kept as a version for the owner.
+  await versions.saveFile(
+    resolved.absolutePath,
+    (temporaryPath) => fs.writeFile(temporaryPath, payload, { flag: 'wx' }),
+    {
+      author: versions.authorOf({ user: req.user, guestSession: req.guestSession || {} }),
+      source: 'share-editor',
+    }
+  );
+
+  await trackShareAccess(share.id);
+  res.set({
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.json({ success: true });
+};
+
+router.put('/:token/editor', asyncHandler(handleSharedEditorSaveRequest));
+router.put('/:token/editor/{*splat}', asyncHandler(handleSharedEditorSaveRequest));
 
 /**
  * GET /api/share/:token/browse/* - Browse share contents
@@ -855,7 +1131,8 @@ router.get(
     // Determine thumbnail settings
     const settings = await getSettings();
     const userSettings = req.user?.id ? await getUserSettings(req.user.id) : {};
-    const thumbsEnabled = settings?.thumbnails?.enabled !== false;
+    const thumbsEnabled =
+      env.THUMBNAILS_ENABLED !== false && settings?.thumbnails?.enabled !== false;
     const includeHiddenFiles = userSettings?.showHiddenFiles === true;
 
     // Directory share or navigating inside a directory share
@@ -866,24 +1143,51 @@ router.get(
         shareCache.set(resolved.shareInfo.shareToken, resolved.shareInfo);
       }
       const userVolumeCache = new Map();
+      const marks =
+        userSettings?.showVersionMarks === false
+          ? null
+          : await versionsService.marksForFolder(resolved.absolutePath).catch((error) => {
+              logger.warn(
+                { err: error, path: resolved.absolutePath },
+                'File versions were not counted for a shared listing'
+              );
+              return null;
+            });
+
       const items = await listDirectoryItems({
         absoluteDir: resolved.absolutePath,
         parentLogicalPath: resolved.relativePath,
         context,
         thumbsEnabled,
-        excludeDownloadArtifacts: false,
         includeHiddenFiles,
-        permissionRules: settings?.access?.rules || [],
+        access: settings?.access || null,
         shareCache,
         userVolumeCache,
-        itemExtras: () => ({
+        itemExtras: ({ name, stats, access }) => ({
           access: {
             canRead: true,
             canWrite: accessInfo.canWrite,
             canDelete: accessInfo.canDelete,
+            canCreateFolder: accessInfo.canCreateFolder,
+            canCreateFile: accessInfo.canCreateFile,
             canShare: false,
-            canDownload: true,
+            // Follows the share rather than being hard true: otherwise every
+            // row in a share with downloads withheld still shows the button,
+            // and clicking it is the only way to find out.
+            canDownload: accessInfo.canDownload,
           },
+          // The same mark the browser shows, under the same rule: a share
+          // says nothing about a file's history unless its owner turned
+          // histories on for it.
+          ...(marks && stats?.isFile() && marks.get(name) && versionRights(access).see
+            ? {
+                versions: {
+                  count: marks.get(name).versions,
+                  bytes: marks.get(name).bytes,
+                  newest: marks.get(name).newest,
+                },
+              }
+            : null),
         }),
       });
 
@@ -894,8 +1198,11 @@ router.get(
           canWrite: accessInfo.canWrite,
           canUpload: accessInfo.canUpload,
           canDelete: accessInfo.canDelete,
+          canCreateFolder: accessInfo.canCreateFolder,
+          canCreateFile: accessInfo.canCreateFile,
           canShare: false,
           canDownload: accessInfo.canDownload,
+          canSeeVersions: versionRights(accessInfo).see,
         },
         current: {
           isDirectory: true,
@@ -952,8 +1259,11 @@ router.get(
         canWrite: accessInfo.canWrite,
         canUpload: false,
         canDelete: accessInfo.canDelete,
+        canCreateFolder: false,
+        canCreateFile: false,
         canShare: false,
         canDownload: accessInfo.canDownload,
+        canSeeVersions: versionRights(accessInfo).see,
       },
       current: {
         isDirectory: false,
