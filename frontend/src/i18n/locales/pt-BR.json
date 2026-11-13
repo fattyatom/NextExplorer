@@ -392,7 +392,8 @@
     "confirmZip": "Baixar um ZIP",
     "wrote": "{count} {items} gravados em {folder}",
     "renamed": "Renomeados para não substituir nada: {names}",
-    "failed": "O download parou"
+    "failed": "O download parou",
+    "saved": "{name} baixado"
   },
   "clipboard": {
     "copying": "Copiando {count} {items}…",

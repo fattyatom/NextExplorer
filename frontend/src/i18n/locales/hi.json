@@ -392,7 +392,8 @@
     "confirmZip": "ZIP डाउनलोड करें",
     "wrote": "{count} {items} {folder} में लिखे गए",
     "renamed": "कुछ भी न बदले, इसलिए नाम बदले गए: {names}",
-    "failed": "डाउनलोड रुक गया"
+    "failed": "डाउनलोड रुक गया",
+    "saved": "{name} डाउनलोड हो गया"
   },
   "clipboard": {
     "copying": "{count} {items} कॉपी किए जा रहे हैं…",

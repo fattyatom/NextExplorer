@@ -392,7 +392,8 @@
     "confirmZip": "Descargar un ZIP",
     "wrote": "{count} {items} escritos en {folder}",
     "renamed": "Renombrados para no reemplazar nada: {names}",
-    "failed": "La descarga se detuvo"
+    "failed": "La descarga se detuvo",
+    "saved": "{name} descargado"
   },
   "clipboard": {
     "copying": "Copiando {count} {items}…",

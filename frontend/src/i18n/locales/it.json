@@ -392,7 +392,8 @@
     "confirmZip": "Scarica uno ZIP",
     "wrote": "{count} {items} scritti in {folder}",
     "renamed": "Rinominati per non sostituire nulla: {names}",
-    "failed": "Il download si è interrotto"
+    "failed": "Il download si è interrotto",
+    "saved": "{name} scaricato"
   },
   "clipboard": {
     "copying": "Copia di {count} {items}…",

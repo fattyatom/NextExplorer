@@ -16,12 +16,16 @@ let featuresState;
 let appSettingsState;
 const pick = vi.fn();
 const runSeparately = vi.fn();
+const runPrepared = vi.fn();
 
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => storeState }));
 vi.mock('@/stores/features', () => ({ useFeaturesStore: () => featuresState }));
 vi.mock('@/stores/appSettings', () => ({ useAppSettings: () => appSettingsState }));
 vi.mock('@/composables/useSeparateDownload', () => ({
   useSeparateDownload: () => ({ run: runSeparately }),
+}));
+vi.mock('@/composables/usePreparedDownload', () => ({
+  usePreparedDownload: () => ({ run: runPrepared }),
 }));
 vi.mock('@/composables/useDestinationPicker', () => ({
   useDestinationPicker: () => ({ pick }),
@@ -247,9 +251,8 @@ describe('downloading', () => {
     return submit;
   };
 
-  it('posts one field per selected path', () => {
+  it('posts one field for the one file selected', () => {
     const submit = formSubmits();
-    const sibling = { name: 'note.txt', path: 'Docs', kind: 'txt' };
     const forms = [];
     const add = vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
       forms.push(node);
@@ -257,14 +260,64 @@ describe('downloading', () => {
     });
     vi.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
 
-    setup({ selection: [FILE, sibling] }).actions.runDownload();
+    setup({ selection: [FILE] }).actions.runDownload();
 
     expect(submit).toHaveBeenCalled();
     const paths = [...forms[0].querySelectorAll('input[name="paths"]')].map((i) => i.value);
-    expect(paths).toEqual(['Docs/report.docx', 'Docs/note.txt']);
+    expect(paths).toEqual(['Docs/report.docx']);
     expect(forms[0].querySelector('input[name="basePath"]').value).toBe('Docs');
     add.mockRestore();
     vi.restoreAllMocks();
+  });
+
+  /**
+   * Anything that becomes a zip is prepared by the server out of sight rather
+   * than posted as a form: the form's response waits on the whole build, and a
+   * proxy with a deadline on the first byte gives up on a large folder.
+   */
+  it('has several things prepared as one zip, named after the folder they are in', () => {
+    const submit = formSubmits();
+    runPrepared.mockClear();
+    const sibling = { name: 'note.txt', path: 'Docs', kind: 'txt' };
+
+    setup({ selection: [FILE, sibling] }).actions.runDownload();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(runPrepared).toHaveBeenCalledWith({
+      paths: ['Docs/report.docx', 'Docs/note.txt'],
+      basePath: 'Docs',
+      name: 'Docs.zip',
+      itemCount: 2,
+    });
+  });
+
+  it('has one folder prepared as a zip of its own name', () => {
+    const submit = formSubmits();
+    runPrepared.mockClear();
+    const folder = { name: 'Photos', path: 'Docs', kind: 'directory' };
+
+    setup({ selection: [folder] }).actions.runDownload();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(runPrepared).toHaveBeenCalledWith({
+      paths: ['Docs/Photos'],
+      basePath: 'Docs',
+      name: 'Photos.zip',
+      itemCount: 1,
+    });
+  });
+
+  it('has the folder of a share prepared when the whole of it is asked for', () => {
+    runPrepared.mockClear();
+
+    setup({ path: 'share/abc123', selection: [] }).actions.runDownloadCurrentFolder();
+
+    expect(runPrepared).toHaveBeenCalledWith({
+      paths: ['share/abc123'],
+      basePath: 'share/abc123',
+      name: 'abc123.zip',
+      itemCount: 1,
+    });
   });
 
   it('submits nothing when nothing is selected', () => {
@@ -524,36 +577,36 @@ describe('downloading a selection as separate files', () => {
   });
 
   it('leaves the archive alone for an account that never asked', async () => {
-    const submit = formSubmits();
+    runPrepared.mockClear();
     const { actions } = setup({ selection: [FILE, OTHER] });
 
     await actions.runDownload();
 
     expect(runSeparately).not.toHaveBeenCalled();
-    expect(submit).toHaveBeenCalled();
-    submit.mockRestore();
+    expect(runPrepared).toHaveBeenCalled();
   });
 
   /** The question about a large selection offers the archive as an answer. */
   it('downloads the archive when the question was answered that way', async () => {
-    const submit = formSubmits();
+    runPrepared.mockClear();
     runSeparately.mockResolvedValue('zip');
     const { actions } = setup({ selection: [FILE, OTHER] });
 
     await actions.runDownloadSeparately();
 
-    expect(submit).toHaveBeenCalled();
-    submit.mockRestore();
+    expect(runPrepared).toHaveBeenCalled();
   });
 
   it.each(['cancelled', 'failed', 'done'])('downloads nothing else after %s', async (outcome) => {
     const submit = formSubmits();
+    runPrepared.mockClear();
     runSeparately.mockResolvedValue(outcome);
     const { actions } = setup({ selection: [FILE, OTHER] });
 
     await actions.runDownloadSeparately();
 
     expect(submit).not.toHaveBeenCalled();
+    expect(runPrepared).not.toHaveBeenCalled();
     submit.mockRestore();
   });
 });

@@ -392,7 +392,8 @@
     "confirmZip": "Ladda ner ett ZIP",
     "wrote": "{count} {items} skrevs till {folder}",
     "renamed": "Omdöpta så att inget ersattes: {names}",
-    "failed": "Nerladdningen avbröts"
+    "failed": "Nerladdningen avbröts",
+    "saved": "{name} har laddats ner"
   },
   "clipboard": {
     "copying": "Kopierar {count} {items}…",

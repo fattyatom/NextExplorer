@@ -31,7 +31,7 @@ browser attaches to requests another site made.
 
 | Scope   | What it reaches                                                                                                                                                                                                                                   |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`  | `GET` and `HEAD`, plus `POST /api/download` and `POST /api/download/plan` — downloading a selection is a read that arrives as a POST because a hundred file names do not fit in a URL, and the plan is the same read described before it is taken |
+| `read`  | `GET` and `HEAD`, plus `POST /api/download`, `POST /api/download/plan` and `POST /api/download/prepare` — downloading a selection is a read that arrives as a POST because a hundred file names do not fit in a URL, the plan is the same read described before it is taken, and preparing it is the same read made into a temp file to fetch afterwards |
 | `write` | everything the account itself can do with files: upload, move, rename, delete                                                                                                                                                                     |
 
 **What no token ever reaches**, whatever its scope and whoever owns it:

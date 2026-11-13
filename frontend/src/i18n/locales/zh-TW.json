@@ -392,7 +392,8 @@
     "confirmZip": "下載壓縮檔",
     "wrote": "已將 {count} 個{items}寫入 {folder}",
     "renamed": "已重新命名，未取代任何檔案：{names}",
-    "failed": "下載已停止"
+    "failed": "下載已停止",
+    "saved": "{name} 已下載"
   },
   "clipboard": {
     "copying": "正在複製 {count} 個{items}…",

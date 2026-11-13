@@ -392,7 +392,8 @@
     "confirmZip": "Скачать ZIP",
     "wrote": "{count} {items} записано в {folder}",
     "renamed": "Переименовано, чтобы ничего не заменить: {names}",
-    "failed": "Скачивание прервано"
+    "failed": "Скачивание прервано",
+    "saved": "{name} скачан"
   },
   "clipboard": {
     "copying": "Копирование {count} {items}…",

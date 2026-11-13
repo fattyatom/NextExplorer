@@ -392,7 +392,8 @@
     "confirmZip": "Descarcă un ZIP",
     "wrote": "{count} {items} scrise în {folder}",
     "renamed": "Redenumite ca să nu fie înlocuit nimic: {names}",
-    "failed": "Descărcarea s-a oprit"
+    "failed": "Descărcarea s-a oprit",
+    "saved": "{name} a fost descărcat"
   },
   "clipboard": {
     "copying": "Se copiază {count} {items}…",

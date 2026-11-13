@@ -392,7 +392,8 @@
     "confirmZip": "Pobierz ZIP",
     "wrote": "Zapisano {count} {items} w {folder}",
     "renamed": "Zmieniono nazwy, aby nic nie zostało nadpisane: {names}",
-    "failed": "Pobieranie zostało przerwane"
+    "failed": "Pobieranie zostało przerwane",
+    "saved": "Pobrano {name}"
   },
   "clipboard": {
     "copying": "Kopiowanie {count} {items}…",

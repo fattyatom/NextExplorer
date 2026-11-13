@@ -392,7 +392,8 @@
     "confirmZip": "Een ZIP downloaden",
     "wrote": "{count} {items} naar {folder} geschreven",
     "renamed": "Hernoemd zodat niets is vervangen: {names}",
-    "failed": "De download is gestopt"
+    "failed": "De download is gestopt",
+    "saved": "{name} gedownload"
   },
   "clipboard": {
     "copying": "{count} {items} kopiëren…",

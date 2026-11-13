@@ -479,6 +479,34 @@ const tour = async (app, { volume, requireFresh }) => {
     admin.get(`/api/download/part/${plan.body.token}/archive`)
   );
 
+  // The same archive, made out of sight: asked for, waited for, taken, let go.
+  const prepared = await call(
+    'POST /api/download/prepare',
+    admin.post('/api/download/prepare').send({ basePath: '', paths: ['Documents/Projets'] })
+  );
+  await call(
+    'POST /api/download/prepare',
+    admin
+      .post('/api/download/prepare')
+      .send({ basePath: 'Documents', paths: ['Documents/notes.md'] })
+  );
+  await call(
+    'GET /api/download/prepared/{id}',
+    admin.get(`/api/download/prepared/${prepared.body.id}?wait=1`)
+  );
+  await call(
+    'GET /api/download/prepared/{id}',
+    admin.get(`/api/download/prepared/${prepared.body.id}`).set('Range', 'bytes=0-9')
+  );
+  await call(
+    'DELETE /api/download/prepared/{id}',
+    admin.delete(`/api/download/prepared/${prepared.body.id}`)
+  );
+  await call(
+    'GET /api/download/prepared/{id}',
+    admin.get(`/api/download/prepared/${prepared.body.id}`)
+  );
+
   // Changing who owns what, as far as this machine allows.
   await call(
     'POST /api/permissions/chmod',

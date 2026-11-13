@@ -392,7 +392,8 @@
     "confirmZip": "ZIP herunterladen",
     "wrote": "{count} {items} nach {folder} geschrieben",
     "renamed": "Umbenannt, damit nichts überschrieben wird: {names}",
-    "failed": "Der Download wurde abgebrochen"
+    "failed": "Der Download wurde abgebrochen",
+    "saved": "{name} heruntergeladen"
   },
   "clipboard": {
     "copying": "Kopieren von {count} {items}…",

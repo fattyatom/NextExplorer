@@ -392,7 +392,8 @@
     "confirmZip": "Télécharger un ZIP",
     "wrote": "{count} {items} écrits dans {folder}",
     "renamed": "Renommés pour ne rien remplacer : {names}",
-    "failed": "Le téléchargement s'est arrêté"
+    "failed": "Le téléchargement s'est arrêté",
+    "saved": "{name} téléchargé"
   },
   "clipboard": {
     "copying": "Copie de {count} {items}…",

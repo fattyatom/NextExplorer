@@ -399,7 +399,7 @@ module.exports = {
             'application/zip': { schema: { type: 'string', format: 'binary' } },
           },
         },
-        ...errors(400, 401, 403, 404),
+        ...errors(400, 401, 403, 404, 413),
       },
     }),
   },
@@ -473,8 +473,88 @@ module.exports = {
             'application/zip': { schema: { type: 'string', format: 'binary' } },
           },
         },
+        ...errors(400, 401, 403, 404, 413),
+      },
+    }),
+  },
+  '/api/download/prepare': {
+    post: op({
+      id: 'prepareDownload',
+      summary: 'Have a zip made out of sight, to fetch once it exists',
+      description:
+        'The same selection `POST /api/download` would zip, built to a temp file instead of inside a response. Answers with an id at once, so nothing is held open across the build — which is what a proxy with a deadline on the first byte (Cloudflare’s 524) needs. A selection that is one file is refused: it downloads as itself. This is where a public link’s download is counted and the activity log names it, once the build starts. The archive is worth thirty minutes from its last use and only to the caller who asked for it. A POST a `read` API token may make.',
+      tag: 'Files',
+      access: 'account',
+      body: body(
+        obj({
+          basePath: str('The folder the names are relative to, which the zip starts from.'),
+          currentPath: str('Older name for `basePath`.', { deprecated: true }),
+          path: str('One path.'),
+          paths: arrayOf(str()),
+          items: arrayOf(obj({ path: str(), name: str() })),
+        })
+      ),
+      responses: {
+        202: json(
+          obj(
+            {
+              id: str('Names the archive being built; needed to ask for it.'),
+              name: str('What to call the zip.'),
+            },
+            { required: ['id', 'name'] }
+          )
+        ),
         ...errors(400, 401, 403, 404),
       },
+    }),
+  },
+  '/api/download/prepared/{id}': {
+    get: op({
+      id: 'fetchPreparedDownload',
+      summary: 'A prepared zip: whether it is ready, then the zip itself',
+      description:
+        '202 while the archive is being built, with how far along it is; the zip once it exists. A `Range` header is honoured, so it can be taken in parts and a part that failed asked for again. A build that was refused answers with that refusal — 413 for a selection past `MAX_DOWNLOAD_ZIP_SIZE`. Neither the link’s counter nor the activity log moves here.',
+      tag: 'Files',
+      access: 'account',
+      params: [
+        pathParam('id', 'The id the preparation answered with.'),
+        query(
+          'wait',
+          'Hold the question for up to twenty seconds while the archive is still being built, rather than answering 202 at once.'
+        ),
+        header('Range', 'A byte range of the finished zip, `bytes=0-1048575`.'),
+      ],
+      responses: {
+        200: {
+          description: 'The zip.',
+          content: { 'application/zip': { schema: { type: 'string', format: 'binary' } } },
+        },
+        202: json(
+          obj(
+            {
+              status: str(null, { enum: ['building'] }),
+              percent: int('How much of it has been written, 0 to 99.'),
+            },
+            { required: ['status', 'percent'] }
+          )
+        ),
+        206: {
+          description: 'The part of the zip that was asked for.',
+          content: { 'application/zip': { schema: { type: 'string', format: 'binary' } } },
+        },
+        416: { description: 'A range the zip does not have.' },
+        ...errors(401, 403, 404, 413),
+      },
+    }),
+    delete: op({
+      id: 'cancelPreparedDownload',
+      summary: 'Give up on a prepared zip',
+      description:
+        'Stops the build if it is still running and removes the temp file. Answers 204 whether or not there was anything of this caller’s to remove.',
+      tag: 'Files',
+      access: 'account',
+      params: [pathParam('id', 'The id the preparation answered with.')],
+      responses: { 204: { description: 'Gone.' }, ...errors(401, 403) },
     }),
   },
 };

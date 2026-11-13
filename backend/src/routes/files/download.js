@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs/promises');
+const fss = require('fs');
 const { ZipArchive } = require('archiver');
 const { normalizeRelativePath } = require('../../utils/pathUtils');
 const { resolvePathWithAccess } = require('../../services/accessManager');
@@ -8,8 +9,29 @@ const { trackShareDownload } = require('../../services/sharesService');
 const { createPlan, readPlan, ownerKeyFor } = require('../../services/downloadPlans');
 const asyncHandler = require('../../utils/asyncHandler');
 const { mapWithConcurrency } = require('../../utils/mapWithConcurrency');
-const { collectArchiveEntries, appendEntries } = require('../../services/archiveTree');
-const { ValidationError, ForbiddenError, NotFoundError } = require('../../errors/AppError');
+const {
+  collectArchiveEntries,
+  appendEntries,
+  writeZipFile,
+} = require('../../services/archiveTree');
+const {
+  createPrepared,
+  readPrepared,
+  holdForRead,
+  markReady,
+  markFailed,
+  waitUntilSettled,
+  removePrepared,
+} = require('../../services/preparedDownloads');
+const { ensureZipWithinLimit } = require('../../services/zipDownloadLimit');
+const { markLongPoll } = require('../../middleware/heldRequests');
+const { parseByteRange } = require('../../utils/httpRange');
+const {
+  AppError,
+  ValidationError,
+  ForbiddenError,
+  NotFoundError,
+} = require('../../errors/AppError');
 const logger = require('../../utils/logger');
 const { collectInputPaths, encodeContentDisposition, stripBasePath, toPosix } = require('./utils');
 
@@ -142,7 +164,32 @@ const archiveNameFor = (targets, baseNormalized) => {
   return 'download.zip';
 };
 
+/**
+ * What an archive of these targets would hold, and how much of it there is.
+ *
+ * Only what a listing of those folders would show: never a personal root
+ * inside the volume, a name listings leave out, or a path an access rule hides.
+ */
+const collectForArchive = (context, targets, baseNormalized) =>
+  collectArchiveEntries(
+    context,
+    targets.map(({ relativePath, absolutePath, stats }) => {
+      const entryNameRaw = isShareRootPath(relativePath)
+        ? getDownloadBaseName({ relativePath, absolutePath })
+        : stripBasePath(relativePath, baseNormalized);
+      const entryName = entryNameRaw
+        ? entryNameRaw.replace(/\\/g, '/').replace(/^\/+/, '')
+        : path.basename(absolutePath);
+      return { absolutePath, logicalPath: relativePath, entryName, stats };
+    })
+  );
+
 const sendArchive = async ({ context, res, targets, baseNormalized, archiveName }) => {
+  // Listed and measured before a header goes out, so that an archive past the
+  // ceiling is refused as an ordinary error rather than cut off part way.
+  const { entries, totalBytes } = await collectForArchive(context, targets, baseNormalized);
+  ensureZipWithinLimit(totalBytes);
+
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', encodeContentDisposition(archiveName));
 
@@ -157,21 +204,6 @@ const sendArchive = async ({ context, res, targets, baseNormalized, archiveName 
   });
 
   archive.pipe(res);
-
-  // Only what a listing of those folders would show: never a personal root
-  // inside the volume, a name listings leave out, or a path an access rule hides.
-  const { entries } = await collectArchiveEntries(
-    context,
-    targets.map(({ relativePath, absolutePath, stats }) => {
-      const entryNameRaw = isShareRootPath(relativePath)
-        ? getDownloadBaseName({ relativePath, absolutePath })
-        : stripBasePath(relativePath, baseNormalized);
-      const entryName = entryNameRaw
-        ? entryNameRaw.replace(/\\/g, '/').replace(/^\/+/, '')
-        : path.basename(absolutePath);
-      return { absolutePath, logicalPath: relativePath, entryName, stats };
-    })
-  );
   appendEntries(archive, entries);
 
   await archive.finalize();
@@ -311,6 +343,183 @@ router.get(
     }
 
     sendSingleFile(res, target.absolutePath, wanted.name);
+  })
+);
+
+/**
+ * The same archive, made out of sight and fetched once it exists.
+ *
+ * `POST /api/download` builds the zip inside its own response, so the first
+ * byte waits on the walk of everything that goes in. A proxy with a deadline on
+ * that first byte — Cloudflare's is a hundred seconds — answers 524 for a large
+ * folder, whatever the server is doing. Here nothing is held open across the
+ * build: this answers with an id at once, the zip is written to the temp
+ * directory, and `GET /api/download/prepared/<id>` says when it is ready and
+ * then serves it, in ranges if asked.
+ *
+ * The selection is counted when its build starts — once, as the streamed
+ * archive would be — and fetching it, in however many ranges, counts nothing.
+ */
+const buildPrepared = async ({ entry, context, targets, baseNormalized, req }) => {
+  try {
+    const { entries, totalBytes } = await collectForArchive(context, targets, baseNormalized);
+    ensureZipWithinLimit(totalBytes);
+
+    await countShareDownloads(targets, req);
+    await recordDownload(targets, req);
+
+    await writeZipFile(entries, entry.tempPath, {
+      totalBytes,
+      signal: entry.controller.signal,
+      onPercent: (percent) => {
+        // The last few percent are the archive being closed, not done.
+        entry.percent = Math.min(99, percent);
+      },
+    });
+
+    const { size } = await fs.stat(entry.tempPath);
+    markReady(entry, size);
+    logger.info({ downloadId: entry.id, name: entry.name, size }, 'Prepared download built');
+  } catch (error) {
+    if (error?.code !== 'OPERATION_CANCELLED') {
+      logger[error?.isOperational ? 'info' : 'error'](
+        { err: error, downloadId: entry.id },
+        'Prepared download was not built'
+      );
+    }
+    markFailed(entry, error);
+  }
+};
+
+router.post(
+  '/download/prepare',
+  asyncHandler(async (req, res) => {
+    const ownerKey = ownerKeyFor(req);
+    if (!ownerKey) throw new ForbiddenError('Download not allowed.');
+
+    const basePath = req.body?.basePath || req.body?.currentPath || '';
+    const paths = collectInputPaths(req.body?.path, req.body?.paths, req.body?.items);
+    const normalizedPaths = normalizePaths(paths);
+    const baseNormalized = basePath ? normalizeRelativePath(basePath) : '';
+    const context = { user: req.user, guestSession: req.guestSession };
+
+    const targets = await resolveTargets(context, normalizedPaths);
+
+    const hasDirectory = targets.some(({ stats }) => stats.isDirectory());
+    if (!hasDirectory && targets.length === 1) {
+      throw new ValidationError(
+        'A single file downloads as itself and needs no preparing. Use POST /api/download.',
+        null,
+        'DOWNLOAD_NOT_AN_ARCHIVE'
+      );
+    }
+
+    const entry = createPrepared({ ownerKey, name: archiveNameFor(targets, baseNormalized) });
+    res.status(202).json({ id: entry.id, name: entry.name });
+
+    // Not awaited: the answer above is the whole point. Its own failures are
+    // kept on the entry and told to whoever asks for it next.
+    buildPrepared({ entry, context, targets, baseNormalized, req });
+  })
+);
+
+/** How long a readiness question is held before it is answered "not yet". */
+const READY_WAIT_MS = 20 * 1000;
+
+/** Larger reads than the 64 KB default keep a proxied socket fed. */
+const READ_CHUNK_BYTES = 1024 * 1024;
+
+const sendPreparedFile = (req, res, entry) => {
+  const headers = {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': encodeContentDisposition(entry.name),
+    'Accept-Ranges': 'bytes',
+    // One reader, once: nothing between here and them should keep or rewrite it.
+    'Cache-Control': 'no-store, no-transform',
+  };
+
+  const range = parseByteRange(req.headers.range, entry.size);
+  if (range?.malformed) {
+    res.status(416).send('Malformed Range header');
+    return;
+  }
+  if (range?.unsatisfiable) {
+    res.status(416).set('Content-Range', `bytes */${entry.size}`).send('Range Not Satisfiable');
+    return;
+  }
+
+  if (range) {
+    res.writeHead(206, {
+      ...headers,
+      'Content-Range': `bytes ${range.start}-${range.end}/${entry.size}`,
+      'Content-Length': range.chunkSize,
+    });
+  } else {
+    res.writeHead(200, { ...headers, 'Content-Length': entry.size });
+  }
+
+  if (req.method === 'HEAD' || entry.size === 0) {
+    res.end();
+    return;
+  }
+
+  const stream = fss.createReadStream(entry.tempPath, {
+    ...(range ? { start: range.start, end: range.end } : {}),
+    highWaterMark: READ_CHUNK_BYTES,
+  });
+  stream.on('error', (error) => {
+    logger.error({ err: error, downloadId: entry.id }, 'Prepared download stream failed');
+    res.destroy(error);
+  });
+  const release = holdForRead(entry);
+  // A reader that goes away part way must not leave the file open behind it.
+  res.on('close', () => {
+    stream.destroy();
+    release();
+  });
+  stream.pipe(res);
+};
+
+/**
+ * A prepared archive: 202 while it is being built, the file once it is.
+ *
+ * `?wait=1` holds the question for up to twenty seconds — well inside any
+ * proxy's patience — so a caller asks a few times rather than every second.
+ */
+const answerPrepared = asyncHandler(async (req, res) => {
+  const ownerKey = ownerKeyFor(req);
+  const entry = ownerKey ? readPrepared(req.params.id, ownerKey) : null;
+  if (!entry) throw new NotFoundError('This download is no longer available.');
+
+  if (entry.state === 'building' && req.query?.wait) {
+    markLongPoll(req);
+    await waitUntilSettled(entry, READY_WAIT_MS);
+  }
+
+  if (entry.state === 'failed') {
+    throw new AppError(entry.error.message, entry.error.statusCode, entry.error.code);
+  }
+
+  if (entry.state === 'building') {
+    res.set('Cache-Control', 'no-store');
+    res.status(202).json({ status: 'building', percent: entry.percent });
+    return;
+  }
+
+  sendPreparedFile(req, res, entry);
+});
+
+router.get('/download/prepared/:id', answerPrepared);
+
+/** Give up on a prepared archive: stops the build and removes the file. */
+router.delete(
+  '/download/prepared/:id',
+  asyncHandler(async (req, res) => {
+    const ownerKey = ownerKeyFor(req);
+    const entry = ownerKey ? readPrepared(req.params.id, ownerKey) : null;
+    // Somebody else's, expired, or never made: there is nothing of theirs to remove.
+    if (entry) removePrepared(entry.id);
+    res.status(204).end();
   })
 );
 

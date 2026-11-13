@@ -531,6 +531,14 @@ const archives = (() => {
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 32 * 1024 * 1024 * 1024;
     })(),
     maxEntries: env.MAX_ARCHIVE_ENTRIES,
+    // What one zip download may hold: a folder or a selection, a direct share
+    // link to a folder. A prepared download is written whole to the temp disk
+    // before it is served, so without a ceiling one request can fill it.
+    // Default 20G; "0" turns the cap off.
+    maxDownloadZipBytes: (() => {
+      const parsed = parseByteSize(env.MAX_DOWNLOAD_ZIP_SIZE);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : 20 * 1024 * 1024 * 1024;
+    })(),
     // A compound archive — a .tar.gz and its family — is two archives, and the
     // inner one has to be decompressed before anything inside it can be named.
     // Above this it is not: browsing a backup by unpacking it first would

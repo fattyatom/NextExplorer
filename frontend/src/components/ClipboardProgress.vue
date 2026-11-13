@@ -156,6 +156,8 @@ const progressLabelFor = (value, rate = rateFor(value)) => {
 const titleFor = (value) => {
   if (!value) return '';
 
+  // A zip the server is still making: nothing is coming down yet.
+  if (value.type === 'download' && value.preparing) return t('download.preparing');
   if (value.type === 'download') {
     const count = Number(value.itemCount) || 1;
     return t('clipboard.downloading', {

@@ -2866,6 +2866,443 @@
           },
           "404": {
             "$ref": "#/components/responses/E404"
+          },
+          "413": {
+            "$ref": "#/components/responses/E413"
+          }
+        }
+      }
+    },
+    "/api/download/plan": {
+      "post": {
+        "operationId": "planDownload",
+        "summary": "The same selection, described instead of sent",
+        "description": "Answers the names and sizes of the loose files, the one zip the selected folders become, and a token naming those parts — for taking a selection away as separate files rather than as one archive. This is where a public link’s download is counted and where the activity log names it, once for the selection, so fetching the parts adds neither. The token is worth ten minutes from its last use and only to the caller who asked for it. The other POST a `read` API token may make.",
+        "tags": ["Files"],
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          }
+        ],
+        "x-access": "account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "basePath": {
+                    "type": "string",
+                    "description": "The folder the names are relative to, which the zip starts from."
+                  },
+                  "currentPath": {
+                    "type": "string",
+                    "description": "Older name for `basePath`.",
+                    "deprecated": true
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "One path."
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "description": "Names the parts; needed for every one of them."
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "description": "What to ask for this file as."
+                          },
+                          "name": {
+                            "type": "string",
+                            "description": "What to call it, already free of collisions within the selection."
+                          },
+                          "size": {
+                            "type": "integer",
+                            "description": "Its length in bytes."
+                          }
+                        }
+                      }
+                    },
+                    "archive": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "description": "What to call the zip."
+                        },
+                        "folders": {
+                          "type": "integer",
+                          "description": "How many selected folders are in it."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          }
+        }
+      }
+    },
+    "/api/download/part/{token}/{part}": {
+      "get": {
+        "operationId": "downloadPart",
+        "summary": "One part of a planned download",
+        "description": "A file by its position in the plan, or `archive` for the zip holding the folders that were selected with it. Every part is resolved and checked again: a plan records what was asked and never carries the permission forward. Neither the link’s counter nor the activity log moves here — the plan already accounted for the selection.",
+        "tags": ["Files"],
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          }
+        ],
+        "x-access": "account",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "description": "The token the plan answered with.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "part",
+            "in": "path",
+            "required": true,
+            "description": "A file’s index, or `archive`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, or the zip.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "413": {
+            "$ref": "#/components/responses/E413"
+          }
+        }
+      }
+    },
+    "/api/download/prepare": {
+      "post": {
+        "operationId": "prepareDownload",
+        "summary": "Have a zip made out of sight, to fetch once it exists",
+        "description": "The same selection `POST /api/download` would zip, built to a temp file instead of inside a response. Answers with an id at once, so nothing is held open across the build — which is what a proxy with a deadline on the first byte (Cloudflare’s 524) needs. A selection that is one file is refused: it downloads as itself. This is where a public link’s download is counted and the activity log names it, once the build starts. The archive is worth thirty minutes from its last use and only to the caller who asked for it. A POST a `read` API token may make.",
+        "tags": ["Files"],
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          }
+        ],
+        "x-access": "account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "basePath": {
+                    "type": "string",
+                    "description": "The folder the names are relative to, which the zip starts from."
+                  },
+                  "currentPath": {
+                    "type": "string",
+                    "description": "Older name for `basePath`.",
+                    "deprecated": true
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "One path."
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Names the archive being built; needed to ask for it."
+                    },
+                    "name": {
+                      "type": "string",
+                      "description": "What to call the zip."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/E400"
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          }
+        }
+      }
+    },
+    "/api/download/prepared/{id}": {
+      "get": {
+        "operationId": "fetchPreparedDownload",
+        "summary": "A prepared zip: whether it is ready, then the zip itself",
+        "description": "202 while the archive is being built, with how far along it is; the zip once it exists. A `Range` header is honoured, so it can be taken in parts and a part that failed asked for again. A build that was refused answers with that refusal — 413 for a selection past `MAX_DOWNLOAD_ZIP_SIZE`. Neither the link’s counter nor the activity log moves here.",
+        "tags": ["Files"],
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          }
+        ],
+        "x-access": "account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id the preparation answered with.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "description": "Hold the question for up to twenty seconds while the archive is still being built, rather than answering 202 at once.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "description": "A byte range of the finished zip, `bytes=0-1048575`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The zip.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": ["building"]
+                    },
+                    "percent": {
+                      "type": "integer",
+                      "description": "How much of it has been written, 0 to 99."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The part of the zip that was asked for.",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
+          },
+          "404": {
+            "$ref": "#/components/responses/E404"
+          },
+          "413": {
+            "$ref": "#/components/responses/E413"
+          },
+          "416": {
+            "description": "A range the zip does not have."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "cancelPreparedDownload",
+        "summary": "Give up on a prepared zip",
+        "description": "Stops the build if it is still running and removes the temp file. Answers 204 whether or not there was anything of this caller’s to remove.",
+        "tags": ["Files"],
+        "security": [
+          {
+            "session": []
+          },
+          {
+            "apiToken": []
+          }
+        ],
+        "x-access": "account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id the preparation answered with.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Gone."
+          },
+          "401": {
+            "$ref": "#/components/responses/E401"
+          },
+          "403": {
+            "$ref": "#/components/responses/E403"
           }
         }
       }
@@ -5055,199 +5492,6 @@
           },
           "401": {
             "$ref": "#/components/responses/E401"
-          },
-          "404": {
-            "$ref": "#/components/responses/E404"
-          }
-        }
-      }
-    },
-    "/api/download/plan": {
-      "post": {
-        "operationId": "planDownload",
-        "summary": "The same selection, described instead of sent",
-        "description": "Answers the names and sizes of the loose files, the one zip the selected folders become, and a token naming those parts — for taking a selection away as separate files rather than as one archive. This is where a public link’s download is counted and where the activity log names it, once for the selection, so fetching the parts adds neither. The token is worth ten minutes from its last use and only to the caller who asked for it. The other POST a `read` API token may make.",
-        "tags": ["Files"],
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "apiToken": []
-          }
-        ],
-        "x-access": "account",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "basePath": {
-                    "type": "string",
-                    "description": "The folder the names are relative to, which the zip starts from."
-                  },
-                  "currentPath": {
-                    "type": "string",
-                    "description": "Older name for `basePath`.",
-                    "deprecated": true
-                  },
-                  "path": {
-                    "type": "string",
-                    "description": "One path."
-                  },
-                  "paths": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "items": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "path": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Done.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "token": {
-                      "type": "string",
-                      "description": "Names the parts; needed for every one of them."
-                    },
-                    "files": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "index": {
-                            "type": "integer",
-                            "description": "What to ask for this file as."
-                          },
-                          "name": {
-                            "type": "string",
-                            "description": "What to call it, already free of collisions within the selection."
-                          },
-                          "size": {
-                            "type": "integer",
-                            "description": "Its length in bytes."
-                          }
-                        }
-                      }
-                    },
-                    "archive": {
-                      "type": ["object", "null"],
-                      "properties": {
-                        "name": {
-                          "type": "string",
-                          "description": "What to call the zip."
-                        },
-                        "folders": {
-                          "type": "integer",
-                          "description": "How many selected folders are in it."
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/E400"
-          },
-          "401": {
-            "$ref": "#/components/responses/E401"
-          },
-          "403": {
-            "$ref": "#/components/responses/E403"
-          },
-          "404": {
-            "$ref": "#/components/responses/E404"
-          }
-        }
-      }
-    },
-    "/api/download/part/{token}/{part}": {
-      "get": {
-        "operationId": "downloadPart",
-        "summary": "One part of a planned download",
-        "description": "A file by its position in the plan, or `archive` for the zip holding the folders that were selected with it. Every part is resolved and checked again: a plan records what was asked and never carries the permission forward. Neither the link’s counter nor the activity log moves here — the plan already accounted for the selection.",
-        "tags": ["Files"],
-        "security": [
-          {
-            "session": []
-          },
-          {
-            "apiToken": []
-          }
-        ],
-        "x-access": "account",
-        "parameters": [
-          {
-            "name": "token",
-            "in": "path",
-            "required": true,
-            "description": "The token the plan answered with.",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "part",
-            "in": "path",
-            "required": true,
-            "description": "A file’s index, or `archive`.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The file, or the zip.",
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "application/zip": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/E400"
-          },
-          "401": {
-            "$ref": "#/components/responses/E401"
-          },
-          "403": {
-            "$ref": "#/components/responses/E403"
           },
           "404": {
             "$ref": "#/components/responses/E404"
@@ -8904,6 +9148,19 @@
                       "additionalProperties": true,
                       "description": "Whether, how large, how good, how many at once."
                     },
+                    "ffmpeg": {
+                      "type": "object",
+                      "properties": {
+                        "ffmpegPath": {
+                          "type": ["string", "null"],
+                          "description": "Absolute executable path visible inside the container."
+                        },
+                        "ffprobePath": {
+                          "type": ["string", "null"],
+                          "description": "Absolute executable path visible inside the container."
+                        }
+                      }
+                    },
                     "access": {
                       "type": "object",
                       "properties": {
@@ -9036,6 +9293,19 @@
                     "additionalProperties": true,
                     "description": "Whether, how large, how good, how many at once."
                   },
+                  "ffmpeg": {
+                    "type": "object",
+                    "properties": {
+                      "ffmpegPath": {
+                        "type": ["string", "null"],
+                        "description": "Absolute executable path visible inside the container."
+                      },
+                      "ffprobePath": {
+                        "type": ["string", "null"],
+                        "description": "Absolute executable path visible inside the container."
+                      }
+                    }
+                  },
                   "access": {
                     "type": "object",
                     "properties": {
@@ -9149,6 +9419,19 @@
                       "properties": {},
                       "additionalProperties": true,
                       "description": "Whether, how large, how good, how many at once."
+                    },
+                    "ffmpeg": {
+                      "type": "object",
+                      "properties": {
+                        "ffmpegPath": {
+                          "type": ["string", "null"],
+                          "description": "Absolute executable path visible inside the container."
+                        },
+                        "ffprobePath": {
+                          "type": ["string", "null"],
+                          "description": "Absolute executable path visible inside the container."
+                        }
+                      }
                     },
                     "access": {
                       "type": "object",
@@ -9310,6 +9593,19 @@
                           "properties": {},
                           "additionalProperties": true,
                           "description": "Whether, how large, how good, how many at once."
+                        },
+                        "ffmpeg": {
+                          "type": "object",
+                          "properties": {
+                            "ffmpegPath": {
+                              "type": ["string", "null"],
+                              "description": "Absolute executable path visible inside the container."
+                            },
+                            "ffprobePath": {
+                              "type": ["string", "null"],
+                              "description": "Absolute executable path visible inside the container."
+                            }
+                          }
                         },
                         "access": {
                           "type": "object",

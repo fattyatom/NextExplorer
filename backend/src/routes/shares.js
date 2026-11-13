@@ -40,6 +40,7 @@ const { getSettings, getUserSettings } = require('../services/settingsService');
 const { listDirectoryItems } = require('../services/directoryListingService');
 const { encodeContentDisposition } = require('./files/utils');
 const { collectArchiveEntries, appendEntries } = require('../services/archiveTree');
+const { ensureZipWithinLimit } = require('../services/zipDownloadLimit');
 const logger = require('../utils/logger');
 const {
   readTextFileHead,
@@ -314,6 +315,20 @@ const streamResolvedDirectoryZip = async ({
     ? safeArchiveName
     : `${safeArchiveName}.zip`;
 
+  // What the share lets its visitor see, not everything below its folder: the
+  // trash zone, a personal root and the paths an access rule hides stay out.
+  const stats = await fs.stat(absolutePath);
+  const { entries, totalBytes } = await collectArchiveEntries(context, [
+    {
+      absolutePath,
+      logicalPath,
+      entryName: path.basename(absolutePath) || safeArchiveName,
+      stats,
+    },
+  ]);
+  // Before any header goes out, so the refusal is an ordinary error.
+  ensureZipWithinLimit(totalBytes);
+
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', encodeContentDisposition(filename, 'attachment'));
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -330,17 +345,6 @@ const streamResolvedDirectoryZip = async ({
   });
 
   archive.pipe(res);
-  // What the share lets its visitor see, not everything below its folder: the
-  // trash zone, a personal root and the paths an access rule hides stay out.
-  const stats = await fs.stat(absolutePath);
-  const { entries } = await collectArchiveEntries(context, [
-    {
-      absolutePath,
-      logicalPath,
-      entryName: path.basename(absolutePath) || safeArchiveName,
-      stats,
-    },
-  ]);
   appendEntries(archive, entries);
   await archive.finalize();
 };

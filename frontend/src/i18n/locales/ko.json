@@ -392,7 +392,8 @@
     "confirmZip": "ZIP으로 다운로드",
     "wrote": "{count}개 {items}을 {folder}에 저장했습니다",
     "renamed": "덮어쓰지 않도록 이름을 바꿨습니다: {names}",
-    "failed": "다운로드가 중단되었습니다"
+    "failed": "다운로드가 중단되었습니다",
+    "saved": "{name} 다운로드 완료"
   },
   "clipboard": {
     "copying": "{count}개 {items} 복사 중…",

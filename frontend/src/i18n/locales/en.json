@@ -392,7 +392,8 @@
     "confirmZip": "Download a ZIP",
     "wrote": "{count} {items} written to {folder}",
     "renamed": "Renamed so nothing was replaced: {names}",
-    "failed": "The download stopped"
+    "failed": "The download stopped",
+    "saved": "{name} downloaded"
   },
   "clipboard": {
     "copying": "Copying {count} {items}…",

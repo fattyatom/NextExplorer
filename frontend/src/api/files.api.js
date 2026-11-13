@@ -492,6 +492,64 @@ async function downloadItems(paths, basePath = '') {
 }
 
 /**
+ * Ask for a selection to be zipped out of sight (the answer is an id, at once).
+ *
+ * The zip `POST /api/download` sends is made inside that response, and a proxy
+ * with a deadline on the first byte gives up on a large folder before there is
+ * one. Prepared, nothing is held open while it is built.
+ */
+async function prepareDownload(paths, basePath = '', options = {}) {
+  const normalizedList = (Array.isArray(paths) ? paths : [paths])
+    .map((item) => normalizePath(item))
+    .filter(Boolean);
+
+  if (normalizedList.length === 0) {
+    throw new Error('At least one path is required for download.');
+  }
+
+  return requestJson('/api/download/prepare', {
+    method: 'POST',
+    body: JSON.stringify({
+      paths: normalizedList,
+      basePath: basePath ? normalizePath(basePath) : '',
+    }),
+    ...options,
+  });
+}
+
+const preparedDownloadPath = (id) => `/api/download/prepared/${encodeURIComponent(id)}`;
+
+/** Where a prepared zip is — for an anchor carrying `download`, once it is ready. */
+function preparedDownloadUrl(id) {
+  return buildUrl(preparedDownloadPath(id));
+}
+
+/**
+ * A prepared zip, or part of it: 202 while it is being built, the bytes after.
+ *
+ * `wait` has the server hold the question for a while rather than answer "not
+ * yet" at once; `range` is `{ start, end }`, inclusive.
+ */
+function fetchPreparedDownload(id, { wait = false, range = null, ...options } = {}) {
+  return requestRaw(`${preparedDownloadPath(id)}${wait ? '?wait=1' : ''}`, {
+    method: 'GET',
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(range ? { Range: `bytes=${range.start}-${range.end}` } : {}),
+    },
+  });
+}
+
+/** Give a prepared zip up. Best effort: the server forgets it by itself in time. */
+function cancelPreparedDownload(id) {
+  return requestRaw(preparedDownloadPath(id), {
+    method: 'DELETE',
+    suppressErrorHandler: true,
+  }).catch(() => null);
+}
+
+/**
  * The same selection, described instead of sent (#487).
  *
  * Answers the names and sizes of the loose files, plus the one archive the
@@ -715,6 +773,10 @@ export {
   fetchMetadata,
   downloadItems,
   createDownloadPlan,
+  prepareDownload,
+  preparedDownloadUrl,
+  fetchPreparedDownload,
+  cancelPreparedDownload,
   downloadPartUrl,
   fetchDownloadPart,
   extractZip,

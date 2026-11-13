@@ -291,6 +291,7 @@ module.exports = {
   // Archives
   MAX_EXTRACTED_ARCHIVE_SIZE: process.env.MAX_EXTRACTED_ARCHIVE_SIZE?.trim() || null,
   MAX_ARCHIVE_ENTRIES: Number(process.env.MAX_ARCHIVE_ENTRIES) || 100000,
+  MAX_DOWNLOAD_ZIP_SIZE: process.env.MAX_DOWNLOAD_ZIP_SIZE?.trim() || null,
   MAX_BROWSABLE_ARCHIVE_SIZE: process.env.MAX_BROWSABLE_ARCHIVE_SIZE?.trim() || null,
   ARCHIVE_CACHE_MAX_SIZE: process.env.ARCHIVE_CACHE_MAX_SIZE?.trim() || null,
 

@@ -5,6 +5,7 @@ import { useAppSettings } from '@/stores/appSettings';
 import { buildUrl, expectBrowserNavigation, normalizePath } from '@/api';
 import { useDestinationPicker } from '@/composables/useDestinationPicker';
 import { useSeparateDownload } from '@/composables/useSeparateDownload';
+import { usePreparedDownload } from '@/composables/usePreparedDownload';
 
 function isEditableElement(el) {
   if (!el) return false;
@@ -262,9 +263,36 @@ export function useFileActions() {
 
   const selectionPaths = () => downloadableSelection.value.map(resolveItemPath).filter(Boolean);
 
+  /** What the server will call the zip, said first so a save picker can offer it. */
+  const archiveNameFor = (items) => {
+    if (items.length === 1 && items[0]?.name) return `${items[0].name}.zip`;
+    const folder = currentDirectoryPath.value.split('/').filter(Boolean).pop();
+    return `${folder || 'download'}.zip`;
+  };
+
+  /**
+   * One file downloads as itself, by the form. Anything that becomes a zip — a
+   * folder, or several things — is prepared by the server out of sight and
+   * fetched once it exists, so that no request waits on the build: a proxy with
+   * a deadline on the first byte would give up on a large folder before then.
+   */
   const runDownloadAsZip = () => {
     if (!hasSelection.value) return;
-    submitDownloadRequest(selectionPaths(), currentDirectoryPath.value);
+    const items = downloadableSelection.value;
+    const paths = selectionPaths();
+    if (!paths.length) return;
+
+    if (items.length === 1 && !['directory', 'volume'].includes(items[0]?.kind)) {
+      submitDownloadRequest(paths, currentDirectoryPath.value);
+      return;
+    }
+
+    return usePreparedDownload().run({
+      paths,
+      basePath: currentDirectoryPath.value,
+      name: archiveNameFor(items),
+      itemCount: items.length,
+    });
   };
 
   const runDownloadSeparately = async () => {
@@ -292,7 +320,12 @@ export function useFileActions() {
 
   const runDownloadCurrentFolder = () => {
     if (!canDownloadCurrentFolder.value) return;
-    submitDownloadRequest([currentDirectoryPath.value], currentDirectoryPath.value);
+    return usePreparedDownload().run({
+      paths: [currentDirectoryPath.value],
+      basePath: currentDirectoryPath.value,
+      name: archiveNameFor([]),
+      itemCount: 1,
+    });
   };
 
   return {

@@ -61,8 +61,12 @@ const ALWAYS_OPEN = new Set(['/api/auth/me']);
  * Asking for the same selection as separate files is the same read, described
  * before it is taken: it resolves the names and answers with sizes. The parts
  * themselves arrive as GETs and never come through here.
+ *
+ * Asking for the archive to be prepared rather than streamed is the same read
+ * a third time: what it writes is a temp file of the server's own, which the
+ * caller then fetches with a GET.
  */
-const READ_ONLY_POSTS = new Set(['/api/download', '/api/download/plan']);
+const READ_ONLY_POSTS = new Set(['/api/download', '/api/download/plan', '/api/download/prepare']);
 
 /**
  * Every way this path could be read, reduced to one spelling each.
