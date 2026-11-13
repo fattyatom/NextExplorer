@@ -4,6 +4,16 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Upstream's FFmpeg base image (ghcr.io/nxzai/nextexplorer-ffmpeg) is not
+  # public, so this fork builds its own (ffmpeg-publish.yml) and the app image
+  # is built from that. When a push changes both, the app build would race the
+  # FFmpeg one and fail on a tag that does not exist yet; building again once
+  # FFmpeg is published picks it up.
+  workflow_run:
+    workflows: ['Build and Publish FFmpeg Image']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: explorer
@@ -15,6 +25,7 @@ concurrency:
 jobs:
   build:
     name: Build Docker image
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -25,6 +36,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # The Dockerfile's FFmpeg image, with this fork's owner in place of
+      # upstream's: same name and version, so a version bump upstream needs
+      # no change here.
+      - name: Resolve the FFmpeg image
+        id: ffmpeg
+        run: |
+          upstream=$(sed -n 's/^ARG FFMPEG_IMAGE=//p' Dockerfile | head -n1)
+          test -n "$upstream"
+          owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner}/${upstream#ghcr.io/*/}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -55,6 +77,7 @@ jobs:
           context: .
           file: ./Dockerfile
           build-args: |
+            FFMPEG_IMAGE=${{ steps.ffmpeg.outputs.image }}
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
             REPO_URL=https://github.com/${{ github.repository }}
