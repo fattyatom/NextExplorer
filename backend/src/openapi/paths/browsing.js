@@ -492,6 +492,9 @@ module.exports = {
           path: str('One path.'),
           paths: arrayOf(str()),
           items: arrayOf(obj({ path: str(), name: str() })),
+          plan: str(
+            'Instead of paths: the token of a download plan, to prepare the zip of the folders in it. The plan already counted the download, so this does not.'
+          ),
         })
       ),
       responses: {

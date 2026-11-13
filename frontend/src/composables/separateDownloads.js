@@ -1,4 +1,14 @@
-import { downloadPartUrl, fetchDownloadPart } from '@/api';
+import {
+  cancelPreparedDownload,
+  downloadPartUrl,
+  fetchDownloadPart,
+  preparePlanArchive,
+} from '@/api';
+import {
+  awaitFirstRange,
+  handPreparedToBrowser,
+  writePreparedToFile,
+} from '@/composables/preparedDownloads';
 
 /**
  * Taking a selection away as separate files rather than as one archive (#487).
@@ -105,6 +115,34 @@ const freeFileHandle = async (folder, name) => {
 };
 
 /**
+ * The archive of a plan is not streamed: the server makes it out of sight and
+ * it is fetched once it exists, like any other zip of a folder. A response that
+ * waits on the build is one a proxy with a deadline gives up on.
+ *
+ * A refusal on the way was not reported by the client — these requests answer
+ * for themselves — so it is handed on as an ordinary error for the caller to say.
+ */
+const unreported = (error) => {
+  if (!error?.statusCode) return error;
+  return new Error(error.message);
+};
+
+const prepareArchiveOf = async (plan, { signal, rangeBytes } = {}) => {
+  const prepared = await preparePlanArchive(plan.token, { signal, suppressErrorHandler: true });
+  try {
+    const first = await awaitFirstRange({
+      id: prepared.id,
+      signal,
+      ...(rangeBytes ? { rangeBytes } : {}),
+    });
+    return { id: prepared.id, first };
+  } catch (error) {
+    cancelPreparedDownload(prepared.id);
+    throw error;
+  }
+};
+
+/**
  * Write every part of a plan into a folder the reader picked.
  *
  * `onProgress` is called with the bytes written so far and the parts finished,
@@ -118,6 +156,34 @@ export const writePartsToFolder = async ({ plan, folder, signal, onProgress } = 
   for (let position = 0; position < parts.length; position += 1) {
     if (signal?.aborted) break;
     const entry = parts[position];
+
+    if (entry.part === 'archive') {
+      const before = writtenBytes;
+      let prepared = null;
+      let target = null;
+      try {
+        prepared = await prepareArchiveOf(plan, { signal });
+        target = await freeFileHandle(folder, entry.name);
+        if (target.renamed) renamed.push(target.name);
+        await writePreparedToFile({
+          id: prepared.id,
+          first: prepared.first,
+          fileHandle: target.handle,
+          signal,
+          onProgress: (written) => {
+            writtenBytes = before + written;
+            onProgress?.({ writtenBytes, finishedParts: position, totalParts: parts.length });
+          },
+        });
+      } catch (error) {
+        if (target) await folder.removeEntry(target.name).catch(() => {});
+        throw unreported(error);
+      } finally {
+        if (prepared) cancelPreparedDownload(prepared.id);
+      }
+      onProgress?.({ writtenBytes, finishedParts: position + 1, totalParts: parts.length });
+      continue;
+    }
 
     const response = await fetchDownloadPart(plan.token, entry.part, { signal });
     const target = await freeFileHandle(folder, entry.name);
@@ -174,6 +240,19 @@ export const clickPartsThrough = async ({ plan, spacingMs = CLICK_SPACING_MS } =
 
   for (let position = 0; position < parts.length; position += 1) {
     const entry = parts[position];
+
+    if (entry.part === 'archive') {
+      // Waited for here, then taken by the browser as one ordinary request for
+      // a file that already exists. Not removed: the browser has yet to ask.
+      try {
+        const prepared = await prepareArchiveOf(plan, { rangeBytes: 1 });
+        handPreparedToBrowser({ id: prepared.id, name: entry.name });
+      } catch (error) {
+        throw unreported(error);
+      }
+      continue;
+    }
+
     const anchor = document.createElement('a');
     anchor.href = downloadPartUrl(plan.token, entry.part);
     anchor.download = entry.name;

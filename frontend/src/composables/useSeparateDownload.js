@@ -59,8 +59,21 @@ export function useSeparateDownload() {
     if (!plan?.token || (!plan.files?.length && !plan.archive)) return 'failed';
 
     if (!folder) {
-      await clickPartsThrough({ plan });
-      return 'done';
+      try {
+        await clickPartsThrough({ plan });
+        return 'done';
+      } catch (error) {
+        // The files are on their way; it is the archive of the folders that
+        // could not be made, and nobody has said so yet.
+        if (!error?.statusCode) {
+          notifications.addNotification({
+            type: 'error',
+            heading: i18n.global.t('download.failed'),
+            body: error?.message || '',
+          });
+        }
+        return 'failed';
+      }
     }
 
     return writeIntoFolder(plan, folder);

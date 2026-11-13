@@ -507,6 +507,11 @@ const tour = async (app, { volume, requireFresh }) => {
     admin.get(`/api/download/prepared/${prepared.body.id}`)
   );
 
+  await call(
+    'POST /api/download/prepare',
+    admin.post('/api/download/prepare').send({ plan: plan.body.token })
+  );
+
   // Changing who owns what, as far as this machine allows.
   await call(
     'POST /api/permissions/chmod',

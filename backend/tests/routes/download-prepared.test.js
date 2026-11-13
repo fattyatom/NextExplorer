@@ -231,6 +231,51 @@ describe('a zip prepared out of sight', () => {
   });
 });
 
+describe('the folders of a selection taken as separate files', () => {
+  it('are prepared from the plan, and counted by the plan alone', async () => {
+    const { share, db } = await seed();
+    const app = asVisitor(share);
+    const root = `share/${share.shareToken}`;
+
+    const plan = await request(app)
+      .post('/api/download/plan')
+      .send({ paths: [`${root}/Photos`, `${root}/notes.txt`], basePath: root });
+    expect(plan.status).toBe(200);
+    expect(counters(db, share.id).download_count).toBe(1);
+
+    const asked = await request(app).post('/api/download/prepare').send({ plan: plan.body.token });
+    expect(asked.status).toBe(202);
+    expect(asked.body.name).toBe(plan.body.archive.name);
+
+    const zip = await ready(app, asked.body.id).buffer(true).parse(binary);
+    expect(zip.status).toBe(200);
+    expect(zip.body.subarray(0, 2).toString()).toBe('PK');
+    expect(counters(db, share.id).download_count).toBe(1);
+  });
+
+  it("are nobody else's to prepare, and nothing without folders", async () => {
+    const { share } = await seed();
+    const root = `share/${share.shareToken}`;
+    const app = asVisitor(share);
+
+    const withFolder = await request(app)
+      .post('/api/download/plan')
+      .send({ paths: [`${root}/Photos`, `${root}/notes.txt`], basePath: root });
+    const stranger = await request(asVisitor(share, 'guest-2'))
+      .post('/api/download/prepare')
+      .send({ plan: withFolder.body.token });
+    expect(stranger.status).toBe(404);
+
+    const filesOnly = await request(app)
+      .post('/api/download/plan')
+      .send({ paths: [`${root}/rapport.txt`, `${root}/notes.txt`], basePath: root });
+    const nothing = await request(app)
+      .post('/api/download/prepare')
+      .send({ plan: filesOnly.body.token });
+    expect(nothing.status).toBe(404);
+  });
+});
+
 describe('the ceiling on a zip download', () => {
   it('tells whoever asks for a prepared zip past it, and writes nothing', async () => {
     const { share, db } = await seed({ MAX_DOWNLOAD_ZIP_SIZE: '1K' });

@@ -3123,6 +3123,10 @@
                         }
                       }
                     }
+                  },
+                  "plan": {
+                    "type": "string",
+                    "description": "Instead of paths: the token of a download plan, to prepare the zip of the folders in it. The plan already counted the download, so this does not."
                   }
                 }
               }

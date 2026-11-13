@@ -360,13 +360,16 @@ router.get(
  * The selection is counted when its build starts — once, as the streamed
  * archive would be — and fetching it, in however many ranges, counts nothing.
  */
-const buildPrepared = async ({ entry, context, targets, baseNormalized, req }) => {
+const buildPrepared = async ({ entry, context, targets, baseNormalized, req, counted }) => {
   try {
     const { entries, totalBytes } = await collectForArchive(context, targets, baseNormalized);
     ensureZipWithinLimit(totalBytes);
 
-    await countShareDownloads(targets, req);
-    await recordDownload(targets, req);
+    // The archive of a plan was counted when the plan was made.
+    if (!counted) {
+      await countShareDownloads(targets, req);
+      await recordDownload(targets, req);
+    }
 
     await writeZipFile(entries, entry.tempPath, {
       totalBytes,
@@ -396,12 +399,34 @@ router.post(
   asyncHandler(async (req, res) => {
     const ownerKey = ownerKeyFor(req);
     if (!ownerKey) throw new ForbiddenError('Download not allowed.');
+    const context = { user: req.user, guestSession: req.guestSession };
+
+    // The folders of a selection taken as separate files: the same archive
+    // `GET /api/download/part/<token>/archive` would stream, prepared instead.
+    // Resolved and checked again, as every part of a plan is; counted by the plan.
+    const planToken = typeof req.body?.plan === 'string' ? req.body.plan : null;
+    if (planToken) {
+      const plan = readPlan(planToken, ownerKey);
+      if (!plan?.archive) throw new NotFoundError('This download is no longer available.');
+
+      const targets = await resolveTargets(context, plan.archive.relativePaths);
+      const entry = createPrepared({ ownerKey, name: plan.archive.name });
+      res.status(202).json({ id: entry.id, name: entry.name });
+      buildPrepared({
+        entry,
+        context,
+        targets,
+        baseNormalized: plan.basePath,
+        req,
+        counted: true,
+      });
+      return;
+    }
 
     const basePath = req.body?.basePath || req.body?.currentPath || '';
     const paths = collectInputPaths(req.body?.path, req.body?.paths, req.body?.items);
     const normalizedPaths = normalizePaths(paths);
     const baseNormalized = basePath ? normalizeRelativePath(basePath) : '';
-    const context = { user: req.user, guestSession: req.guestSession };
 
     const targets = await resolveTargets(context, normalizedPaths);
 
@@ -419,7 +444,7 @@ router.post(
 
     // Not awaited: the answer above is the whole point. Its own failures are
     // kept on the entry and told to whoever asks for it next.
-    buildPrepared({ entry, context, targets, baseNormalized, req });
+    buildPrepared({ entry, context, targets, baseNormalized, req, counted: false });
   })
 );
 

@@ -517,6 +517,18 @@ async function prepareDownload(paths, basePath = '', options = {}) {
   });
 }
 
+/**
+ * The same, for the folders of a download plan: the zip the plan's `archive`
+ * part would stream, prepared instead. The plan already counted the download.
+ */
+async function preparePlanArchive(token, options = {}) {
+  return requestJson('/api/download/prepare', {
+    method: 'POST',
+    body: JSON.stringify({ plan: token }),
+    ...options,
+  });
+}
+
 const preparedDownloadPath = (id) => `/api/download/prepared/${encodeURIComponent(id)}`;
 
 /** Where a prepared zip is — for an anchor carrying `download`, once it is ready. */
@@ -774,6 +786,7 @@ export {
   downloadItems,
   createDownloadPlan,
   prepareDownload,
+  preparePlanArchive,
   preparedDownloadUrl,
   fetchPreparedDownload,
   cancelPreparedDownload,
