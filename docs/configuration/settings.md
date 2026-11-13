@@ -6,16 +6,42 @@ In-app settings expose many server-side toggles you'll also find in the environm
 
 Customize the appearance and branding of your nextExplorer instance:
 
-- **Application name:** Display a custom name in the header, login page, and browser title (e.g., "SPRINTR" instead of "Explorer").
-- **Logo upload:** Upload a custom logo (SVG, PNG, or JPG; max 2MB). Perfect size is 200×200px. Displays in the header and login page.
+- **Application name:** Display a custom name in the header, login page, and browser title (e.g., "SPRINTR" instead of "Explorer"). Every tab reads the page, then this name — `Projects | SPRINTR`, `Access Control | SPRINTR`, `report.docx | SPRINTR` — the sign-in page the name alone, and a share's visitors see it too; a new name reaches the open tabs without a reload. It cannot be empty: the page refuses to save a name of nothing or of spaces, and the server keeps the stored name when sent one.
+- **Logo upload:** Upload a custom logo (SVG, PNG, or JPG; max 2MB). Perfect size is 200×200px. Displays in the header and login page. A chosen logo is only previewed on the page: nothing is sent until **Save**, which stores it together with the name and the attribution link, or nothing at all, and **Discard** brings back the logo in use. Each logo is written to `/config/logos` under a name of its own, so its address changes and no browser keeps showing the previous one; the logo it replaced is removed once the new one is in place.
 - **Attribution link:** Toggle the optional "Powered by nextExplorer" footer link. When enabled, users see a link crediting the original project.
 
 ## Files & Thumbnails
 
 - **Enable thumbnails:** Toggle thumbnail generation (uses Sharp/FFmpeg). Disable to reduce CPU usage when browsing large volumes.
 - **Thumbnail quality:** 1–100 (default 70) to control JPEG compression level.
-- **Max dimension:** Longest side in pixels (default 200) for generated thumbnails.
+- **Max dimension:** Longest side in pixels, 64–1024 (default 200), for generated thumbnails.
+- **Parallel generation:** How many thumbnails are made at once, 1–50 (default 10).
+- A value outside these bounds, or an emptied field, is shown as invalid and cannot be saved.
 - **Video previews:** Require FFmpeg/ffprobe; binaries are included but you can override paths via environment variables.
+
+## Search index
+
+- **Keep a search index:** Reads the volume in the background — the name of every file and folder, and the words inside documents — so that a search answers from the index instead of walking the storage. It starts or stops as soon as the switch moves, and the choice survives a restart.
+- **Exclusions:** Folders the index and a name search leave alone. Those set by `SEARCH_INDEX_EXCLUDE` are listed and cannot be removed here; the second list is yours to edit. A folder added here is forgotten by the index straight away, in batches that leave the server answering meanwhile.
+- **The environment decides when it speaks:** with `SEARCH_INDEX` set, the page shows the value in force, names the variable, and the switch cannot move it. Left unset, the switch decides — so an installation configured by file behaves as it always did.
+
+## Folder sizes
+
+- **Measure folder sizes:** _Off_, _Their own files only_, or _Everything inside them_. Changing between the two measuring modes measures again from scratch.
+- **Exclusions:** as for the search index — the ones from `FOLDER_SIZE_EXCLUDE_PATHS` are fixed, the second list is editable.
+- **The environment decides when it speaks:** `FOLDER_SIZE_MODE`, set, holds the switch the same way.
+
+These two are the only background workers a page can start. Both read volumes the server already reads and grant nothing over the host; the terminal, the paths, the secrets, proxy trust and whether non-administrators see every volume stay in the environment, because they widen what an administrator's session can do — and a stolen one should not be able to widen them.
+
+## About
+
+- **Version, commit and branch** of the build that is running.
+- **Optional tools** _(administrators only)_: ffmpeg, ffprobe, ripgrep, pdftotext, ExifTool, rsync and 7-Zip, and for each one:
+  - whether this instance has it, and the version it reports. The version is asked of the very binary the application runs, and left out rather than guessed when the tool's answer does not state one;
+  - what it gives, and for a missing one the package that brings it back, which is not always the tool's own name;
+  - for 7-Zip, the formats it cannot open here.
+
+  The server writes the same list, versions included, to its log at every start.
 
 ## Security & Authentication
 
@@ -26,8 +52,13 @@ Customize the appearance and branding of your nextExplorer instance:
 ## Access Control
 
 - **Rule editor:** Define per-folder rules with `path`, `type` (`rw`, `ro`, `hidden`), and recursion options.
+- **The path is the one NextExplorer shows:** the volume first, then its folders — `torrents/films`, not the host's `/volume3/downloads/torrents` nor the container's `/mnt/torrents`. Type it, or choose it with the folder button beside the field. A path that names no folder is flagged, with the folder probably meant one click away; it is a warning and not a refusal, since a rule may be written for a folder that does not exist yet.
 - **First-match wins:** Rules are evaluated top to bottom; the first matching path governs browser behavior.
-- **Hidden folders:** Use `hidden` to keep folders out of listings while still accessible via direct URLs.
+- **Who a rule restricts:** every rule restricts every ordinary account. Whether it also restricts administrators is the rule's own switch, **Applies to administrators**, the same whatever the rule grants — so a `ro` rule can hold them to reading, and a `hidden` rule can leave a folder in plain sight for them while hiding it from everybody else.
+- **Apply every rule to administrators:** one switch above the list. With it on, no rule lets an administrator through and each rule's own box is ignored; with it off, each rule decides for itself.
+- **Rules written before this existed** keep doing what they did — a `ro` rule left administrators free to write, a `hidden` rule hid the folder from them too — until the box on the rule is changed. Nothing moves on an upgrade.
+- **A folder a rule holds you to reading carries a small lock** in the listing, where the restriction begins, so a rule is visible before anything is attempted.
+- **Hidden folders:** `hidden` keeps a folder out of listings and search, and refuses it by its address as well.
 
 ## Admin Users
 
@@ -37,5 +68,5 @@ Customize the appearance and branding of your nextExplorer instance:
 
 ## Additional hints
 
-- Most settings persist in `/config/app-config.json`. Back up `/config` before making sweeping changes.
+- Settings persist in `app.db` under `/config`, and the logo uploaded in Branding in `/config/logos`. Back up `/config` before making sweeping changes.
 - Favorites and access control settings sync with the sidebar, so once you pin a favorite it surfaces immediately for all sessions.

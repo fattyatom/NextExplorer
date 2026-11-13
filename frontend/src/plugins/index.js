@@ -3,10 +3,24 @@ import { imagePreviewPlugin } from '@/plugins/image/imagePreview';
 import { videoPreviewPlugin } from '@/plugins/video/videoPreview';
 import { audioPreviewPlugin } from '@/plugins/audio/audioPreview';
 import { markdownPreviewPlugin } from '@/plugins/markdown/markdownPreview';
+import { archivePreviewPlugin } from '@/plugins/archive/archivePreview';
 import { pdfPreviewPlugin } from '@/plugins/pdf/pdfPreview';
 import { onlyofficePreviewPlugin } from '@/plugins/onlyoffice/onlyofficePreview';
 import { collaboraPreviewPlugin } from '@/plugins/collabora/collaboraPreview';
 import { useFeaturesStore } from '@/stores/features';
+
+/**
+ * When every plugin that is going to register itself has done so.
+ *
+ * The editors register asynchronously, once the server has said whether they
+ * are configured — which is right for the folder listing, where nothing waits
+ * on them, and wrong for a page that opens one document and has to decide
+ * whether anything can open it. Asking too early there would answer "nothing
+ * here opens this" about a document ONLYOFFICE was a moment from claiming.
+ */
+let pluginsReady = Promise.resolve();
+
+export const whenPreviewPluginsReady = () => pluginsReady;
 
 /**
  * @param {import('pinia').Pinia} pinia - Pinia instance
@@ -31,13 +45,13 @@ export const installPreviewPlugins = (pinia, options = {}) => {
     });
   }
 
-  // Load ONLYOFFICE asynchronously (doesn't block startup)
-  if (!skipOnlyOffice) {
-    loadOnlyOfficePlugin(manager);
-  }
-
-  // Load Collabora asynchronously (doesn't block startup)
-  loadCollaboraPlugin(manager);
+  // Load the editors asynchronously (doesn't block startup). Both settle
+  // rather than reject — each one already swallows its own failure — so
+  // whatever happens, `whenPreviewPluginsReady` resolves.
+  pluginsReady = Promise.all([
+    skipOnlyOffice ? Promise.resolve() : loadOnlyOfficePlugin(manager),
+    loadCollaboraPlugin(manager),
+  ]).then(() => undefined);
 };
 
 /**
@@ -51,6 +65,7 @@ function registerCorePlugins(manager) {
     audioPreviewPlugin(),
     pdfPreviewPlugin(),
     markdownPreviewPlugin(),
+    archivePreviewPlugin(),
   ];
 
   plugins.forEach((plugin) => manager.register(plugin));

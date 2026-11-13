@@ -10,10 +10,18 @@ import {
   ChevronLeftIcon,
   BuildingOfficeIcon,
   PhotoIcon,
+  ArrowUpTrayIcon,
+  CircleStackIcon,
+  MagnifyingGlassIcon,
   KeyIcon,
   UsersIcon,
   UserCircleIcon,
-  ArrowsRightLeftIcon,
+  ShieldCheckIcon,
+  TrashIcon,
+  FingerPrintIcon,
+  ClipboardDocumentListIcon,
+  ClockIcon,
+  CommandLineIcon,
 } from '@heroicons/vue/24/outline';
 
 const router = useRouter();
@@ -26,7 +34,7 @@ onMounted(async () => {
   if (!appSettings.loaded && !appSettings.loading) {
     try {
       await appSettings.load();
-    } catch (e) {
+    } catch (_) {
       // Settings load may fail for non-admin users trying to access system settings
       // This is handled gracefully in the store, but ensure branding is at least loaded
       if (!appSettings.publicSettings.branding.appName) {
@@ -49,6 +57,26 @@ const userCategories = [
     name: 'Change Password',
     icon: Cog8ToothIcon,
     requiresLocal: true,
+  },
+  {
+    key: 'account-two-factor',
+    i18nKey: 'accountTwoFactor',
+    name: 'Two-factor authentication',
+    icon: ShieldCheckIcon,
+    requiresLocal: true,
+  },
+  {
+    key: 'account-passkeys',
+    i18nKey: 'accountPasskeys',
+    name: 'Passkeys',
+    icon: FingerPrintIcon,
+    requiresLocal: true,
+  },
+  {
+    key: 'account-api-tokens',
+    i18nKey: 'accountApiTokens',
+    name: 'API tokens',
+    icon: CommandLineIcon,
   },
   {
     key: 'user-preferences',
@@ -77,16 +105,52 @@ const adminCategories = [
     icon: PhotoIcon,
   },
   {
+    key: 'ffmpeg',
+    i18nKey: 'ffmpeg',
+    name: 'FFmpeg',
+    icon: CommandLineIcon,
+  },
+  {
+    key: 'uploads',
+    i18nKey: 'uploads',
+    name: 'Uploads',
+    icon: ArrowUpTrayIcon,
+  },
+  {
+    key: 'folder-size',
+    i18nKey: 'folderSize',
+    name: 'Folder size',
+    icon: CircleStackIcon,
+  },
+  {
+    key: 'search-index',
+    i18nKey: 'searchIndex',
+    name: 'Search index',
+    icon: MagnifyingGlassIcon,
+  },
+  {
+    key: 'trash',
+    i18nKey: 'trash',
+    name: 'Trash',
+    icon: TrashIcon,
+  },
+  {
+    key: 'file-versions',
+    i18nKey: 'fileVersions',
+    name: 'File versions',
+    icon: ClockIcon,
+  },
+  {
+    key: 'activity',
+    i18nKey: 'activity',
+    name: 'Activity log',
+    icon: ClipboardDocumentListIcon,
+  },
+  {
     key: 'access-control',
     i18nKey: 'accessControl',
     name: 'Access Control',
     icon: KeyIcon,
-  },
-  {
-    key: 'transfers',
-    i18nKey: 'transfers',
-    name: 'Transfers',
-    icon: ArrowsRightLeftIcon,
   },
   {
     key: 'admin-users',
@@ -119,8 +183,11 @@ const closeSettings = () => {
     <!-- Body: responsive navigation + content -->
     <div class="flex flex-1 flex-col overflow-hidden md:flex-row">
       <!-- Categories navigation -->
+      <!-- The list of categories scrolls on its own. Its parent clips, so a
+           list taller than the window had its last entries simply out of
+           reach: the page scrolls the panel beside it, not this. -->
       <aside
-        class="border-b border-neutral-200 bg-neutral-50/80 px-4 py-3 text-sm dark:border-neutral-700 dark:bg-neutral-900/40 md:w-64 md:flex-shrink-0 md:border-b-0 md:border-r md:px-5 md:py-4"
+        class="border-b border-neutral-200 bg-neutral-50/80 px-4 py-3 text-sm dark:border-neutral-700 dark:bg-neutral-900/40 md:w-64 md:min-h-0 md:flex-shrink-0 md:overflow-y-auto md:border-b-0 md:border-r md:px-5 md:py-4"
       >
         <div class="mb-3 space-y-4">
           <section>

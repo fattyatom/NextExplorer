@@ -4,8 +4,9 @@ const githubRepoUrl = 'https://github.com/vikramsoni2/nextExplorer';
 
 export default defineConfig({
   lang: 'en-US',
-  title: 'nextExplorer',
+  title: 'NextExplorer',
   description: 'Modern, self-hosted file explorer',
+  head: [['link', { rel: 'icon', href: '/images/logo.png' }]],
   themeConfig: {
     logo: '/images/logo.png',
     search: {
@@ -41,6 +42,8 @@ export default defineConfig({
           },
           { text: 'Admin & Access', link: '/admin/guide' },
           { text: 'User volumes', link: '/admin/user-volumes' },
+          { text: 'Trash', link: '/admin/trash' },
+          { text: 'File versions', link: '/admin/versions' },
           { text: 'OIDC', link: '/integrations/oidc' },
           { text: 'Authelia', link: '/integrations/authelia' },
           { text: 'ONLYOFFICE', link: '/integrations/onlyoffice' },
@@ -57,6 +60,8 @@ export default defineConfig({
       {
         text: 'Help & FAQ',
         items: [
+          { text: 'HTTP API', link: '/reference/api' },
+          { text: 'API explorer', link: '/reference/api-explorer' },
           { text: 'Troubleshooting', link: '/reference/troubleshooting' },
           { text: 'CORS errors', link: '/reference/cors' },
           { text: 'Contributing', link: '/reference/contributing' },
@@ -107,6 +112,8 @@ export default defineConfig({
         items: [
           { text: 'Administrator Guide', link: '/admin/guide' },
           { text: 'User volumes', link: '/admin/user-volumes' },
+          { text: 'Trash', link: '/admin/trash' },
+          { text: 'File versions', link: '/admin/versions' },
         ],
       },
       {
@@ -121,6 +128,8 @@ export default defineConfig({
       {
         text: 'Help & FAQ',
         items: [
+          { text: 'HTTP API', link: '/reference/api' },
+          { text: 'API explorer', link: '/reference/api-explorer' },
           { text: 'Troubleshooting', link: '/reference/troubleshooting' },
           { text: 'CORS errors', link: '/reference/cors' },
           { text: 'Contributing', link: '/reference/contributing' },

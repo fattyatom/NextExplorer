@@ -49,7 +49,7 @@ const ensureEnvAdminUser = async () => {
   const username = normalizedEmail.split('@')[0] || 'admin';
 
   const ensureAdminRole = async (userId, rolesJson) => {
-    let roles = [];
+    let roles;
     try {
       roles = JSON.parse(rolesJson || '[]');
     } catch (_) {
@@ -121,6 +121,8 @@ const bootstrap = async () => {
   );
 
   await ensureEnvAdminUser();
+  const { ffmpeg } = await require('../services/settingsService').getSystemSettings();
+  require('../services/ffmpegRunner').configure(ffmpeg);
   logger.debug('Bootstrap complete');
 };
 

@@ -103,22 +103,36 @@ class RateLimitError extends AppError {
 }
 
 /**
- * 500 Internal Server Error - for unexpected server errors
- */
-class InternalError extends AppError {
-  constructor(message = 'Internal server error') {
-    super(message, 500);
-    this.name = 'InternalError';
-  }
-}
-
-/**
  * 415 Unsupported Media Type - for unsupported file types
  */
 class UnsupportedMediaTypeError extends AppError {
   constructor(message = 'Unsupported media type') {
     super(message, 415);
     this.name = 'UnsupportedMediaTypeError';
+  }
+}
+
+/**
+ * 503 Service Unavailable - something this server depends on did not answer
+ *
+ * Not the caller's doing and not a misconfiguration: the request was right and
+ * can be made again. Saying 404 here is what sends an administrator to change
+ * settings that are already correct.
+ */
+class ServiceUnavailableError extends AppError {
+  constructor(message = 'Service unavailable', code = null) {
+    super(message, 503, code);
+    this.name = 'ServiceUnavailableError';
+  }
+}
+
+/**
+ * 507 Insufficient Storage - the destination cannot hold what was sent
+ */
+class InsufficientStorageError extends AppError {
+  constructor(message = 'Insufficient storage') {
+    super(message, 507);
+    this.name = 'InsufficientStorageError';
   }
 }
 
@@ -130,6 +144,7 @@ module.exports = {
   NotFoundError,
   ConflictError,
   RateLimitError,
-  InternalError,
   UnsupportedMediaTypeError,
+  ServiceUnavailableError,
+  InsufficientStorageError,
 };

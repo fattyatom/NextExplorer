@@ -1,12 +1,12 @@
 const authRoutes = require('./auth');
 const uploadRoutes = require('./upload');
-const chunkedUploadRoutes = require('./chunkedUpload');
 const fileRoutes = require('./files');
 const browseRoutes = require('./browse');
 const thumbnailRoutes = require('./thumbnails');
 const editorRoutes = require('./editor');
 const volumeRoutes = require('./volumes');
 const usageRoutes = require('./usage');
+const folderSizeRoutes = require('./folderSize');
 const favoritesRoutes = require('./favorites');
 const settingsRoutes = require('./settings');
 const searchRoutes = require('./search');
@@ -19,23 +19,27 @@ const terminalRoutes = require('./terminal');
 const permissionsRoutes = require('./permissions');
 const sharesRoutes = require('./shares');
 const zipRoutes = require('./zip');
-const healthRoutes = require('./health');
+const archiveRoutes = require('./archive');
 const userVolumesRoutes = require('./userVolumes');
-const folderSizeRoutes = require('./folderSize');
+const trashRoutes = require('./trash');
+const versionsRoutes = require('./versions');
+const versionsAdminRoutes = require('./versionsAdmin');
+const activityRoutes = require('./activity');
+const capabilitiesRoutes = require('./capabilities');
+const openapiRoutes = require('./openapi');
 const { onlyoffice, collabora } = require('../config/index');
 
 const registerRoutes = (app) => {
   // Health endpoints (no /api prefix, unauthenticated)
-  app.use('/', healthRoutes);
 
   app.use('/api/auth', authRoutes);
   app.use('/api', uploadRoutes);
-  app.use('/api', chunkedUploadRoutes);
   app.use('/api', fileRoutes);
   app.use('/api', browseRoutes);
   app.use('/api', editorRoutes);
   app.use('/api', volumeRoutes);
   app.use('/api', usageRoutes);
+  app.use('/api', folderSizeRoutes);
   app.use('/api', favoritesRoutes);
   app.use('/api', settingsRoutes);
   app.use('/api', thumbnailRoutes);
@@ -44,7 +48,14 @@ const registerRoutes = (app) => {
   app.use('/api', metadataRoutes);
   app.use('/api', permissionsRoutes);
   app.use('/api', zipRoutes);
-  app.use('/api', folderSizeRoutes);
+  app.use('/api', archiveRoutes);
+  app.use('/api', trashRoutes);
+  // Before the per-file routes: `/versions/admin/…` must not be read as a
+  // version id with a suffix.
+  app.use('/api', versionsAdminRoutes);
+  app.use('/api', versionsRoutes);
+  app.use('/api', activityRoutes);
+  app.use('/api', capabilitiesRoutes);
   // User volumes management (admin only, requires USER_VOLUMES feature)
   app.use('/api', userVolumesRoutes);
   // Share routes (supports guest sessions)
@@ -52,6 +63,8 @@ const registerRoutes = (app) => {
   app.use('/api/share', sharesRoutes);
   // Public features endpoint (always available)
   app.use('/api', featuresRoutes);
+  // The API's own description, also answered to anybody
+  app.use('/api', openapiRoutes);
   // Admin-only terminal session endpoint
   app.use('/api', terminalRoutes);
   // Mount ONLYOFFICE routes only when configured

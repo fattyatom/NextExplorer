@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
 import { getShareInfo, verifySharePassword, accessShare, setGuestSession } from '@/api/shares.api';
-import { toPathSegments } from '@/api/http';
 import {
   ShareIcon,
   LockClosedIcon,
@@ -15,10 +14,14 @@ import {
 } from '@heroicons/vue/24/outline';
 import LoadingIcon from '@/icons/LoadingIcon.vue';
 import logger from '@/utils/logger';
+import { usePageTitle } from '@/composables/usePageTitle';
+import { folderRoute } from '@/utils/folderRoute';
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
+// The instance's name in the tab, as on its own sign-in page.
+usePageTitle('');
 const auth = useAuthStore();
 
 const shareToken = computed(() => route.params.token || '');
@@ -33,8 +36,10 @@ const verificationError = ref('');
 
 // Computed
 const isExpired = computed(() => shareInfo.value?.isExpired || false);
+// requiresPassword comes from the backend and already accounts for the viewer:
+// the owner of a protected link is not asked for their own password.
 const requiresPassword = computed(() =>
-  Boolean(shareInfo.value?.hasPassword && shareInfo.value?.sharingType === 'anyone')
+  Boolean(shareInfo.value?.requiresPassword && shareInfo.value?.sharingType === 'anyone')
 );
 const redirectTarget = computed(() => {
   const value = route.query.redirect;
@@ -65,7 +70,7 @@ async function loadShareInfo() {
     shareInfo.value = info;
 
     // If share doesn't require password and is public, auto-access
-    if (!info.hasPassword && info.sharingType === 'anyone' && !info.isExpired) {
+    if (!info.requiresPassword && info.sharingType === 'anyone' && !info.isExpired) {
       logger.debug('Auto-accessing share (no password required)');
       await handleAutoAccess();
     }
@@ -107,10 +112,7 @@ function navigateAfterShareAccess() {
     return;
   }
 
-  router.push({
-    name: 'FolderView',
-    params: { path: toPathSegments(`share/${shareToken.value}`) },
-  });
+  router.push(folderRoute(`share/${shareToken.value}`));
 }
 
 async function handleAutoAccess() {
@@ -122,7 +124,7 @@ async function handleAutoAccess() {
 
     if (result.guestSessionId) {
       logger.debug('Setting guest session', result.guestSessionId);
-      setGuestSession(result.guestSessionId);
+      setGuestSession(result.guestSessionId, shareToken.value);
     }
 
     navigateAfterShareAccess();
@@ -150,7 +152,7 @@ async function handlePasswordSubmit() {
     if (result.success) {
       if (result.guestSessionId) {
         logger.debug('Setting guest session', result.guestSessionId);
-        setGuestSession(result.guestSessionId);
+        setGuestSession(result.guestSessionId, shareToken.value);
       }
 
       navigateAfterShareAccess();

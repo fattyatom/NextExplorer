@@ -1,10 +1,11 @@
 const express = require('express');
 const fs = require('fs/promises');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
 
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { ACTIONS, authorizeAndResolve } = require('../services/authorizationService');
+const { ensureAdmin } = require('../middleware/ensureAdmin');
 const logger = require('../utils/logger');
 const asyncHandler = require('../utils/asyncHandler');
 const {
@@ -15,7 +16,21 @@ const {
 } = require('../errors/AppError');
 
 const router = express.Router();
-const execAsync = promisify(exec);
+// execFile never spawns a shell: user-supplied owner/group names and file paths
+// stay plain arguments instead of being interpolated into a command string.
+const execFileAsync = promisify(execFile);
+
+// POSIX-portable account name, or a numeric id. Rejecting anything else keeps
+// `chown` from receiving a value it would read as an option.
+const ACCOUNT_NAME_PATTERN = /^[a-zA-Z0-9_][a-zA-Z0-9._-]*$/;
+
+const ensureValidAccountName = (value, label) => {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string' || !ACCOUNT_NAME_PATTERN.test(value)) {
+    throw new ValidationError(`Invalid ${label} name.`);
+  }
+  return value;
+};
 
 /**
  * Get file permissions, owner, and group information
@@ -52,7 +67,7 @@ router.get(
       if (process.platform !== 'win32') {
         try {
           // Get owner name from uid
-          const { stdout: ownerOut } = await execAsync(`id -nu ${stats.uid}`);
+          const { stdout: ownerOut } = await execFileAsync('id', ['-nu', String(stats.uid)]);
           owner = ownerOut.trim();
         } catch (e) {
           logger.debug({ err: e }, 'Failed to get owner name');
@@ -60,7 +75,7 @@ router.get(
 
         try {
           // Get group name from gid
-          const { stdout: groupOut } = await execAsync(`id -gn ${stats.gid}`);
+          const { stdout: groupOut } = await execFileAsync('id', ['-gn', String(stats.gid)]);
           group = groupOut.trim();
         } catch (e) {
           logger.debug({ err: e }, 'Failed to get group name');
@@ -90,6 +105,9 @@ router.get(
  */
 router.post(
   '/permissions/chmod',
+  // Changing modes on a shared volume is an administration task: a plain
+  // write permission on a path is not consent to re-permission its tree.
+  ensureAdmin,
   asyncHandler(async (req, res) => {
     const { path: rawPath, mode, recursive } = req.body;
 
@@ -101,14 +119,16 @@ router.post(
       throw new ValidationError('Mode must be a 3-digit octal string (e.g., "755").');
     }
 
+    // Guests never reach this point: they have no req.user. Carrying a guest
+    // session on top of a real account does not make the account a guest.
     if (!req.user || !req.user.id) {
       throw new UnauthorizedError('Authentication required');
     }
-    if (req.guestSession) {
-      throw new ForbiddenError('Guests cannot change permissions.');
-    }
 
     const relativePath = normalizeRelativePath(rawPath);
+    if (relativePath.startsWith('share/')) {
+      throw new ForbiddenError('Permissions cannot be changed through a share.');
+    }
     const context = { user: req.user, guestSession: req.guestSession };
     const { allowed, accessInfo, resolved } = await authorizeAndResolve(
       context,
@@ -120,11 +140,14 @@ router.post(
     }
 
     try {
-      // Check if path exists
-      await fs.stat(resolved.absolutePath);
+      const before = await fs.stat(resolved.absolutePath);
 
-      // Use chmod via Node.js built-in
-      const modeInt = parseInt(mode, 8);
+      // The three digits set read, write and execute. The setuid, setgid and
+      // sticky bits are not among them, and `chmod` writes the whole mode it is
+      // given: unticking one box on a shared setgid folder, or on /tmp-like
+      // sticky one, would silently take those bits away. They are kept as the
+      // item already had them.
+      const modeInt = parseInt(mode, 8) | (before.mode & 0o7000);
       await fs.chmod(resolved.absolutePath, modeInt);
 
       // If recursive and directory, apply to all children
@@ -134,10 +157,12 @@ router.post(
           // Use chmod -R for recursive on Unix systems
           if (process.platform !== 'win32') {
             try {
-              await execAsync(`chmod -R ${mode} "${resolved.absolutePath}"`);
+              // No `--` separator here: BSD chmod (macOS) does not accept it.
+              // The path is always absolute, so it can never look like a flag.
+              await execFileAsync('chmod', ['-R', mode, resolved.absolutePath]);
             } catch (e) {
               logger.error({ err: e }, 'Failed to apply recursive chmod');
-              throw new Error('Failed to apply permissions recursively.');
+              throw new Error('Failed to apply permissions recursively.', { cause: e });
             }
           } else {
             // On Windows, we'd need to recursively walk the directory
@@ -171,6 +196,7 @@ router.post(
  */
 router.post(
   '/permissions/chown',
+  ensureAdmin,
   asyncHandler(async (req, res) => {
     const { path: rawPath, owner, group } = req.body;
 
@@ -182,14 +208,18 @@ router.post(
       throw new ValidationError('Either owner or group must be specified.');
     }
 
+    const safeOwner = ensureValidAccountName(owner, 'owner');
+    const safeGroup = ensureValidAccountName(group, 'group');
+
+    // Same as above: only a real account gets here.
     if (!req.user || !req.user.id) {
       throw new UnauthorizedError('Authentication required');
     }
-    if (req.guestSession) {
-      throw new ForbiddenError('Guests cannot change ownership.');
-    }
 
     const relativePath = normalizeRelativePath(rawPath);
+    if (relativePath.startsWith('share/')) {
+      throw new ForbiddenError('Ownership cannot be changed through a share.');
+    }
     const context = { user: req.user, guestSession: req.guestSession };
     const { allowed, accessInfo, resolved } = await authorizeAndResolve(
       context,
@@ -204,21 +234,27 @@ router.post(
       // Check if path exists
       await fs.stat(resolved.absolutePath);
 
-      // chown requires shell execution as Node.js doesn't have built-in owner/group change
-      // This requires elevated privileges on most systems
+      // Node has no built-in owner/group change by name, so the system tools do
+      // it. Arguments are passed as an array, never through a shell, and the
+      // account names were validated above so they cannot look like flags
+      // (the path is absolute, so it cannot either).
       if (process.platform !== 'win32') {
-        let chownCmd = '';
+        let command = '';
+        let args = [];
 
-        if (owner && group) {
-          chownCmd = `chown "${owner}:${group}" "${resolved.absolutePath}"`;
-        } else if (owner) {
-          chownCmd = `chown "${owner}" "${resolved.absolutePath}"`;
-        } else if (group) {
-          chownCmd = `chgrp "${group}" "${resolved.absolutePath}"`;
+        if (safeOwner && safeGroup) {
+          command = 'chown';
+          args = [`${safeOwner}:${safeGroup}`, resolved.absolutePath];
+        } else if (safeOwner) {
+          command = 'chown';
+          args = [safeOwner, resolved.absolutePath];
+        } else {
+          command = 'chgrp';
+          args = [safeGroup, resolved.absolutePath];
         }
 
         try {
-          await execAsync(chownCmd);
+          await execFileAsync(command, args);
           logger.info({ path: relativePath, owner, group }, 'Ownership changed');
         } catch (e) {
           logger.error({ err: e }, 'Failed to change ownership');
@@ -228,7 +264,7 @@ router.post(
               'Permission denied. Changing ownership typically requires root/admin privileges.'
             );
           }
-          throw new Error('Failed to change ownership: ' + e.message);
+          throw new Error('Failed to change ownership: ' + e.message, { cause: e });
         }
       } else {
         throw new ValidationError('Changing ownership is not supported on Windows.');

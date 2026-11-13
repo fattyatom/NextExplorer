@@ -2,48 +2,31 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs/promises');
 
-const config = require('../config');
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { ensureDir } = require('../utils/fsUtils');
 const { ACTIONS, authorizeAndResolve } = require('../services/authorizationService');
+const versions = require('../services/versions/operations');
+const folderSizeHooks = require('../services/folderSizeHooks');
 const asyncHandler = require('../utils/asyncHandler');
+const { sendTextFile } = require('../utils/textFileResponse');
+const { ValidationError, ForbiddenError, NotFoundError } = require('../errors/AppError');
 const {
-  ValidationError,
-  ForbiddenError,
-  NotFoundError,
-  UnsupportedMediaTypeError,
-} = require('../errors/AppError');
+  readFileEncoding,
+  encodeText,
+  textFileEtag,
+  MAX_EDITOR_FILE_SIZE,
+} = require('../services/textEditorService');
 
 const router = express.Router();
 
-const MAX_EDITOR_FILE_SIZE = config.editor?.maxFileSizeBytes ?? 1 * 1024 * 1024;
-const VIDEO_EXTENSIONS = Array.isArray(config.extensions?.videos) ? config.extensions.videos : [];
-
-function isProbablyBinaryBuffer(buffer) {
-  const length = Math.min(buffer.length, 4096);
-  if (!length) return false;
-
-  let suspicious = 0;
-  for (let index = 0; index < length; index += 1) {
-    const byte = buffer[index];
-    if (byte === 0) {
-      return true;
-    }
-    if (byte < 7 || (byte > 13 && byte < 32)) {
-      suspicious += 1;
-    }
-  }
-
-  return suspicious / length > 0.3;
-}
-
-async function readTextFileBuffer(req, relative) {
+async function resolveReadableFile(req, relative) {
   if (typeof relative !== 'string' || !relative) {
     throw new ValidationError('A valid file path is required.');
   }
 
   const relativePath = normalizeRelativePath(relative);
   const context = { user: req.user, guestSession: req.guestSession };
+
   let accessInfo;
   let resolved;
   try {
@@ -64,51 +47,43 @@ async function readTextFileBuffer(req, relative) {
     throw new ForbiddenError(accessInfo?.denialReason || 'Access denied.');
   }
 
-  const { absolutePath } = resolved;
-  const stats = await fs.stat(absolutePath);
-
-  if (stats.isDirectory()) {
-    throw new ValidationError('Cannot open a directory in the editor.');
-  }
-
-  if (typeof stats.size === 'number' && stats.size > MAX_EDITOR_FILE_SIZE) {
-    throw new ValidationError('This file is too large to open in the text editor.');
-  }
-
-  const ext = path.extname(absolutePath).slice(1).toLowerCase();
-  if (VIDEO_EXTENSIONS.includes(ext)) {
-    throw new UnsupportedMediaTypeError('This file type cannot be opened in the text editor.');
-  }
-
-  const buffer = await fs.readFile(absolutePath);
-  if (isProbablyBinaryBuffer(buffer)) {
-    throw new UnsupportedMediaTypeError(
-      'This file appears to be binary and cannot be opened in the text editor.'
-    );
-  }
-
-  return { buffer, absolutePath };
+  return resolved.absolutePath;
 }
+
+/**
+ * The editor's read. By GET, which the browser keeps and revalidates, so the
+ * editor opened from the Markdown preview does not download the file again; by
+ * POST for the clients written against it, which nothing keeps.
+ */
+const sendEditorText = async (req, res, relative) => {
+  const absolutePath = await resolveReadableFile(req, relative);
+  await sendTextFile(req, res, { absolutePath, render: ({ text }) => ({ content: text }) });
+};
+
+router.get(
+  '/editor',
+  asyncHandler(async (req, res) => {
+    await sendEditorText(req, res, req.query?.path);
+  })
+);
 
 router.post(
   '/editor',
   asyncHandler(async (req, res) => {
     const { path: relative = '' } = req.body || {};
-    const { buffer } = await readTextFileBuffer(req, relative);
-    const data = buffer.toString('utf-8');
-    res.send({ content: data });
+    await sendEditorText(req, res, relative);
   })
 );
 
 router.get(
   '/raw',
   asyncHandler(async (req, res) => {
-    const relative = req.query?.path;
-    const { buffer } = await readTextFileBuffer(req, relative);
-
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.send(buffer.toString('utf-8'));
+    const absolutePath = await resolveReadableFile(req, req.query?.path);
+    await sendTextFile(req, res, {
+      absolutePath,
+      headers: { 'X-Content-Type-Options': 'nosniff' },
+      render: ({ text }) => text,
+    });
   })
 );
 
@@ -118,6 +93,12 @@ router.put(
     const { path: relative = '', content = '' } = req.body || {};
     if (typeof relative !== 'string' || !relative) {
       throw new ValidationError('A valid file path is required.');
+    }
+    // Answered rather than thrown at the write: `null` used to reach the file
+    // itself, where it failed as a server error after the document had already
+    // been opened for writing.
+    if (typeof content !== 'string') {
+      throw new ValidationError('The content to save must be text.');
     }
 
     const relativePath = normalizeRelativePath(relative);
@@ -154,7 +135,68 @@ router.put(
     const { absolutePath } = resolved;
 
     await ensureDir(path.dirname(absolutePath));
-    await fs.writeFile(absolutePath, content, { encoding: 'utf-8' });
+    // What the file weighed before, for the index: a save replaces content, so the
+    // folder it sits in gains the difference rather than the whole of the new file.
+    const before = await fs.stat(absolutePath).catch(() => null);
+    const existed = Boolean(before?.isFile());
+    const previousSize = existed ? before.size : 0;
+
+    // Written back in the encoding it already had: a UTF-16 file saved as UTF-8
+    // reads perfectly well here and breaks whatever wrote it.
+    const payload = encodeText(content, existed ? await readFileEncoding(absolutePath) : undefined);
+    // Refused for the same reason the editor refuses to open it. Without this
+    // the editor wrote whatever it was given — paste two megabytes into a small
+    // file, save, and the next attempt to open it answered that the file is too
+    // large. Measured on the bytes actually written, which is what the size
+    // limit is about.
+    if (payload.length > MAX_EDITOR_FILE_SIZE) {
+      throw new ValidationError('This file is too large to save in the text editor.');
+    }
+
+    // Written beside the file and put in place once whole, with what it
+    // replaces kept as a version: a save used to go straight over the file, so
+    // a stop halfway through left it truncated and the state it replaced was
+    // gone. Somebody pressed Save, so it is a state worth keeping — there is no
+    // session here to group it with, as there is in the office editors.
+    let written = null;
+    await versions.saveFile(
+      absolutePath,
+      async (temporaryPath) => {
+        await fs.writeFile(temporaryPath, payload, { flag: 'wx' });
+        written = await fs.stat(temporaryPath, { bigint: true });
+      },
+      {
+        purpose: 'editor',
+        author: versions.authorOf({ user: req.user, guestSession: req.guestSession }),
+        source: 'editor',
+        explicit: true,
+      }
+    );
+    // The index takes the difference the save made, from the size it can already
+    // see, instead of waiting for the periodic sweep to walk the folder again.
+    const updated = await fs.stat(absolutePath, { bigint: true }).catch(() => null);
+    if (updated) {
+      if (existed) {
+        await folderSizeHooks.onFileReplaced(absolutePath, previousSize, Number(updated.size));
+      } else {
+        await folderSizeHooks.onFileWritten(absolutePath, Number(updated.size));
+      }
+    }
+    // The identity the next read of the file will carry — given only when the
+    // file now at the path is the one this save wrote. A save set aside, or one
+    // whose content was already there, leaves another file in place; a write in
+    // place right after the rename changes the modification time. Either way
+    // this answer would name content it did not send.
+    if (
+      written &&
+      updated &&
+      updated.ino === written.ino &&
+      updated.size === written.size &&
+      updated.mtimeNs === written.mtimeNs
+    ) {
+      res.setHeader('ETag', textFileEtag(updated));
+    }
+
     res.send({ success: true });
   })
 );

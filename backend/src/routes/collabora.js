@@ -5,7 +5,8 @@ const fsp = require('fs/promises');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
-const { collabora, public: publicConfig, mimeTypes } = require('../config/index');
+const { collabora, public: publicConfig } = require('../config/index');
+const { toExtension, resolveMimeType } = require('../utils/fileTypes');
 const { normalizeRelativePath } = require('../utils/pathUtils');
 const { ensureDir } = require('../utils/fsUtils');
 const { resolvePathWithAccess } = require('../services/accessManager');
@@ -14,16 +15,16 @@ const logger = require('../utils/logger');
 const { getDiscoveryActionsByExt } = require('../services/collaboraDiscoveryService');
 const lockService = require('../services/wopiLockService');
 const { ValidationError, UnauthorizedError, ForbiddenError } = require('../errors/AppError');
+const folderSizeHooks = require('../services/folderSizeHooks');
+const versions = require('../services/versions/operations');
+
+/** A Collabora save header, under its current name or the one older servers still send. */
+const wopiSaveHeader = (req, name) =>
+  String(req.headers[`x-cool-wopi-${name}`] ?? req.headers[`x-lool-wopi-${name}`] ?? '')
+    .trim()
+    .toLowerCase();
 
 const router = express.Router();
-
-const toExt = (filename = '') => {
-  const base = path.basename(String(filename));
-  const idx = base.lastIndexOf('.');
-  return idx > 0 ? base.slice(idx + 1).toLowerCase() : '';
-};
-
-const resolveMime = (ext) => mimeTypes[ext] || 'application/octet-stream';
 
 const toBase64Url = (buf) =>
   Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -47,6 +48,9 @@ const getAccessTokenFromReq = (req) => {
   return null;
 };
 
+// Signed with the same secret as other tokens, so it says what it is.
+const WOPI_TOKEN_TYPE = 'nextexplorer-wopi';
+
 const verifyWopiToken = (req, fileId) => {
   if (!collabora?.secret) {
     throw new UnauthorizedError('COLLABORA_SECRET is not configured.');
@@ -57,7 +61,7 @@ const verifyWopiToken = (req, fileId) => {
     throw new UnauthorizedError('Missing access_token.');
   }
 
-  let payload = null;
+  let payload;
   try {
     payload = jwt.verify(token, collabora.secret, { algorithms: ['HS256'] });
   } catch (_e) {
@@ -74,6 +78,12 @@ const verifyWopiToken = (req, fileId) => {
 
   if (!payload.absolutePath) {
     throw new UnauthorizedError('access_token missing absolutePath.');
+  }
+
+  // Older tokens predate the type claim; anything that declares another type
+  // is not a WOPI token and must not stand in for one.
+  if (payload.typ && payload.typ !== WOPI_TOKEN_TYPE) {
+    throw new UnauthorizedError('access_token type mismatch.');
   }
 
   return payload;
@@ -121,27 +131,51 @@ router.post(
       throw new ForbiddenError(accessInfo?.denialReason || 'Access denied.');
     }
 
-    const abs = resolved.absolutePath;
-    const stat = await fsp.stat(abs);
+    const stat = await fsp.stat(resolved.absolutePath);
     if (stat.isDirectory()) {
       throw new ValidationError('Cannot open a directory in Collabora.');
     }
 
-    const isReadonlyShare = resolved.shareInfo && resolved.shareInfo.accessMode === 'readonly';
-    const userCanWrite = Boolean(accessInfo.canWrite) && !isReadonlyShare && mode !== 'view';
+    // An earlier version, opened to be read: its own content under the file's
+    // name, never writable, and a file id of its own so that it takes no part in
+    // the locks of the document open beside it.
+    const versionHistory = require('../services/versions');
+    const requestedVersion = typeof req.body?.versionId === 'string' ? req.body.versionId : '';
+    const version = requestedVersion
+      ? await versionHistory.locateVersion(context, relativePath, requestedVersion, {
+          download: false,
+        })
+      : null;
+    const abs = version ? version.absolutePath : resolved.absolutePath;
 
-    const filename = path.basename(abs);
-    const ext = toExt(filename);
+    const isReadonlyShare = resolved.shareInfo && resolved.shareInfo.accessMode === 'readonly';
+    const userCanWrite =
+      !version && Boolean(accessInfo.canWrite) && !isReadonlyShare && mode !== 'view';
+
+    const filename = version ? version.name : path.basename(abs);
+    const ext = toExtension(filename);
     if (!ext) {
       throw new ValidationError('Unknown file extension.');
     }
 
-    const fileId = buildFileId({ space: resolved.space, relativePath: resolved.relativePath });
+    const fileId = buildFileId({
+      space: resolved.space,
+      relativePath: version
+        ? `${resolved.relativePath}@version:${version.version.id}`
+        : resolved.relativePath,
+    });
+
+    // The editor's Revision history entry opens NextExplorer's own history, so
+    // it is only shown where there is one to show.
+    const { getVersionSettings } = require('../services/versions/settings');
+    const offerHistory =
+      !version && (await getVersionSettings()).enabled && versionHistory.rightsFrom(accessInfo).see;
 
     const tokenTtlSeconds = 6 * 60 * 60; // 6 hours
     const tokenExpiresAtMs = Date.now() + tokenTtlSeconds * 1000;
     const accessToken = jwt.sign(
       {
+        typ: WOPI_TOKEN_TYPE,
         fileId,
         absolutePath: abs,
         logicalPath: resolved.relativePath,
@@ -152,6 +186,10 @@ router.post(
           req.user?.displayName || req.user?.username || (req.guestSession ? 'Guest User' : null),
         guestSessionId: req.guestSession?.id || null,
         shareToken: resolved.shareInfo?.shareToken || null,
+        // A version's content is stored under its id: the name it is shown
+        // under is the file's.
+        baseName: filename,
+        versionId: version ? version.version.id : null,
       },
       collabora.secret,
       {
@@ -185,6 +223,16 @@ router.post(
     if (collabora.lang) {
       iframeUrl.searchParams.set('lang', collabora.lang);
     }
+    // Shows File > Revision history, which posts UI_FileVersions to the page.
+    if (offerHistory) {
+      iframeUrl.searchParams.set('revisionhistory', '1');
+    }
+    // Draws the editor's own close button, which posts UI_Close to the page
+    // rather than closing anything itself. Without it the only way out of a
+    // full-screen editor was a button the page floated over the toolbar, which
+    // sat there looking like something Collabora had not quite finished drawing
+    // (nxzai/NextExplorer#303). ONLYOFFICE is asked the same thing.
+    iframeUrl.searchParams.set('closebutton', '1');
 
     res.json({
       urlSrc: iframeUrl.toString(),
@@ -208,7 +256,9 @@ router.get(
     const stat = await fsp.stat(abs);
     if (stat.isDirectory()) throw new ValidationError('Cannot open a directory.');
 
-    const baseName = path.basename(abs);
+    // A version's content is stored under its id; the token carries the name
+    // it is shown under.
+    const baseName = tokenPayload.baseName || path.basename(abs);
     const version = versionFromStat(stat);
 
     res.json({
@@ -224,6 +274,8 @@ router.get(
       SupportsGetLock: true,
       // Required for PostMessage API (enables features like @ mentions)
       PostMessageOrigin: publicConfig?.url || '*',
+      // An earlier version is read, not saved elsewhere under a new name either.
+      ...(tokenPayload.versionId ? { UserCanNotWriteRelative: true } : {}),
     });
   })
 );
@@ -241,8 +293,8 @@ router.get(
     const stat = await fsp.stat(abs);
     if (stat.isDirectory()) throw new ValidationError('Cannot fetch a directory.');
 
-    const ext = toExt(abs);
-    const mime = resolveMime(ext);
+    const ext = toExtension(abs);
+    const mime = resolveMimeType(ext);
     res.writeHead(200, {
       'Content-Type': mime,
       'Content-Length': stat.size,
@@ -260,6 +312,23 @@ router.get(
   })
 );
 
+/**
+ * A token lives for hours; the share it was issued for may not.
+ *
+ * The token stands in for a permission check, so before writing we confirm the
+ * share still exists and has not expired. Deleting or expiring a share now
+ * ends the editing session instead of leaving it writable until the token
+ * runs out.
+ */
+const assertShareStillValid = async (tokenPayload) => {
+  if (!tokenPayload?.shareToken) return;
+  const { getShareByToken, isShareExpired } = require('../services/sharesService');
+  const share = await getShareByToken(tokenPayload.shareToken);
+  if (!share || isShareExpired(share)) {
+    throw new UnauthorizedError('The share for this editing session is no longer available.');
+  }
+};
+
 // WOPI: PutFile (save)
 router.post(
   '/collabora/wopi/files/:fileId/contents',
@@ -268,12 +337,23 @@ router.post(
     if (!fileId) throw new ValidationError('fileId is required.');
 
     const tokenPayload = verifyWopiToken(req, fileId);
+    await assertShareStillValid(tokenPayload);
+
     if (!tokenPayload.canWrite) {
       throw new ForbiddenError('This file is read-only.');
     }
 
     const abs = tokenPayload.absolutePath;
     await ensureDir(path.dirname(abs));
+    let previousSize = 0;
+    let existed = false;
+    try {
+      const previous = await fsp.stat(abs);
+      existed = previous.isFile();
+      previousSize = existed ? previous.size : 0;
+    } catch {
+      // A newly-created document is valid.
+    }
 
     const requestLock = (req.headers['x-wopi-lock'] || '').toString();
     const currentLock = lockService.getLock(fileId);
@@ -282,19 +362,37 @@ router.post(
       return res.status(409).end();
     }
 
-    const dir = path.dirname(abs);
-    const tmp = path.join(dir, `.${path.basename(abs)}.wopi-tmp-${process.pid}-${Date.now()}`);
-
-    const writeStream = fs.createWriteStream(tmp);
-    await new Promise((resolve, reject) => {
-      req.pipe(writeStream);
-      writeStream.on('finish', resolve);
-      writeStream.on('error', reject);
-      req.on('error', reject);
-    });
-
-    await fsp.rename(tmp, abs);
+    await versions.saveFile(
+      abs,
+      (temporaryPath) =>
+        new Promise((resolve, reject) => {
+          const writeStream = fs.createWriteStream(temporaryPath, { flags: 'wx' });
+          req.pipe(writeStream);
+          writeStream.on('finish', resolve);
+          writeStream.on('error', reject);
+          req.on('error', reject);
+        }),
+      {
+        purpose: 'wopi',
+        author: { id: tokenPayload.userId || null, label: tokenPayload.userName || null },
+        source: 'collabora',
+        session: {
+          // One lock per open document, shared by everyone editing it: the
+          // session its saves belong to. Without one, every save counts.
+          key: requestLock ? `wopi:${requestLock}` : null,
+          startedAt: Number.isFinite(tokenPayload.iat) ? tokenPayload.iat * 1000 : null,
+        },
+        // Collabora saves on its own every few minutes; a save someone asked
+        // for, or the one made on closing, is a state worth keeping.
+        explicit: wopiSaveHeader(req, 'isautosave') !== 'true',
+      }
+    );
     const stat = await fsp.stat(abs);
+    if (existed) {
+      await folderSizeHooks.onFileReplaced(abs, previousSize, stat.size);
+    } else {
+      await folderSizeHooks.onFileWritten(abs, stat.size);
+    }
 
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-WOPI-ItemVersion', versionFromStat(stat));
@@ -310,6 +408,8 @@ router.post(
     if (!fileId) throw new ValidationError('fileId is required.');
 
     const tokenPayload = verifyWopiToken(req, fileId);
+    await assertShareStillValid(tokenPayload);
+
     if (!tokenPayload.canWrite) {
       throw new ForbiddenError('This file is read-only.');
     }

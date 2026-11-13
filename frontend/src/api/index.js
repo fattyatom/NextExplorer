@@ -1,12 +1,10 @@
 // /api/index.js
 
 // Export core helpers (optional, but can be useful)
-export { apiBase, buildUrl, normalizePath, encodePath } from './http';
+export { apiBase, buildUrl, expectBrowserNavigation, normalizePath, encodePath } from './http';
 
 // Export all domain-specific functions
 export * from './files.api';
-export * from './folderSize.api';
-export * from './media.api';
 export * from './shares.api';
 export * from './auth.api';
 export * from './users.api';
@@ -16,3 +14,9 @@ export * from './onlyoffice.api';
 export * from './collabora.api';
 export * from './features.api';
 export * from './terminal.api';
+export * from './trash.api';
+export * from './versions.api';
+export * from './archive.api';
+export * from './passkeys.api';
+export * from './activity.api';
+export * from './tokens.api';

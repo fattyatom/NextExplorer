@@ -1,26 +1,37 @@
-const fs = require('fs/promises');
-const path = require('path');
 const { AppError } = require('../errors/AppError');
 
 /**
- * Cap on the total size of the files a zip download may contain.
+ * A ceiling on what one zip download may hold.
  *
- * Folder and multi-file downloads are zipped before they are served, either to
- * a temp file (POST /api/download) or straight to the response (direct share
- * links). Without a cap one request can zip a whole share: it fills the temp
- * disk and, on Kubernetes, gets the pod evicted, cutting off every user.
+ * A folder or a selection leaves as a zip, and so does a direct share link to
+ * a folder. A zip prepared in the background is written whole to the temp disk
+ * before a byte of it is served; without a ceiling one request can zip an
+ * entire volume, fill that disk and — where the temp disk is the container's
+ * own — take the application away from everybody else.
  *
- * The total is the sum of the regular files' sizes as found on disk, the same
- * entries archiver adds (it does not follow symlinks). It stops walking as soon
- * as the cap is passed, so refusing a huge folder costs no more than reading
- * up to the cap's worth of directory entries.
+ * The figure compared is the one `collectArchiveEntries` already returns: the
+ * bytes of the files that would actually go in, after the names a listing
+ * leaves out and the paths an access rule hides have been left out here too.
+ * So the refusal is about the archive that would have been made, and it comes
+ * before anything is written or sent.
  */
+
+const formatBytes = (bytes) => {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} ${units[unit]}`;
+};
 
 class ZipTooLargeError extends AppError {
   constructor(limitBytes) {
     super(
       `This download is larger than the ${formatBytes(limitBytes)} limit for zip downloads. ` +
-        'Select fewer files or download them separately.',
+        'Select fewer items or download them separately.',
       413,
       'ZIP_TOO_LARGE'
     );
@@ -28,58 +39,14 @@ class ZipTooLargeError extends AppError {
   }
 }
 
-const formatBytes = (bytes) => {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i += 1;
-  }
-  return `${Number.isInteger(value) ? value : value.toFixed(1)} ${units[i]}`;
-};
+/** Read when asked rather than when required, so it follows the loaded config. */
+const zipDownloadLimitBytes = () => require('../config/index').archives.maxDownloadZipBytes;
 
-/**
- * Sum the sizes of the regular files under `absolutePaths` (files or
- * directories). Returns { totalBytes, exceeded }; with limitBytes > 0 it stops
- * as soon as the total passes the limit (totalBytes is then only a lower bound).
- */
-const measureZipInput = async (absolutePaths, limitBytes = 0) => {
-  let totalBytes = 0;
-  const stack = [...absolutePaths];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    let stats;
-    try {
-      stats = await fs.lstat(current);
-    } catch {
-      continue; // vanished since it was listed: archiver will skip it too
-    }
-    if (stats.isDirectory()) {
-      let entries = [];
-      try {
-        entries = await fs.readdir(current);
-      } catch {
-        entries = [];
-      }
-      for (const entry of entries) stack.push(path.join(current, entry));
-    } else if (stats.isFile()) {
-      totalBytes += stats.size;
-      if (limitBytes > 0 && totalBytes > limitBytes) {
-        return { totalBytes, exceeded: true };
-      }
-    }
-  }
-  return { totalBytes, exceeded: false };
-};
-
-/** Throw a 413 if the zip of `absolutePaths` would exceed the configured cap. */
-const assertZipWithinLimit = async (absolutePaths) => {
-  // Read at call time, so the setting follows the loaded config.
-  const limitBytes = require('../config/index').archives.maxDownloadZipBytes;
+/** Throw a 413 when a zip of `totalBytes` of files would pass the ceiling. */
+const ensureZipWithinLimit = (totalBytes) => {
+  const limitBytes = zipDownloadLimitBytes();
   if (!(limitBytes > 0)) return;
-  const { exceeded } = await measureZipInput(absolutePaths, limitBytes);
-  if (exceeded) throw new ZipTooLargeError(limitBytes);
+  if (totalBytes > limitBytes) throw new ZipTooLargeError(limitBytes);
 };
 
-module.exports = { assertZipWithinLimit, measureZipInput, ZipTooLargeError, formatBytes };
+module.exports = { ensureZipWithinLimit, zipDownloadLimitBytes, ZipTooLargeError, formatBytes };

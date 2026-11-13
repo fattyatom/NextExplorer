@@ -5,6 +5,9 @@ const Database = require('better-sqlite3');
 const { directories, files, favorites } = require('../config');
 const { ensureDir } = require('../utils/fsUtils');
 const logger = require('../utils/logger');
+const { TRASH_DDL } = require('./trash/schema');
+const { VERSIONS_DDL } = require('./versions/schema');
+const indexDb = require('./indexDb');
 
 let dbInstance = null;
 
@@ -36,6 +39,177 @@ const FOLDER_SIZE_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_folder_size_volume ON folder_size_index(volume);
 `;
 
+// The identity the Document Server files an open document under. Shared by
+// everyone who has it open, which is what lets them edit together; see
+// onlyofficeDocumentKeyService for why it has to outlive their saves.
+//
+// Same idempotent treatment as the index above: a /config directory shared with
+// a different build may already record a later schema version.
+const ONLYOFFICE_DOCUMENT_KEYS_DDL = `
+  CREATE TABLE IF NOT EXISTS onlyoffice_document_keys (
+    relative_path TEXT PRIMARY KEY,
+    document_key  TEXT NOT NULL,
+    signature     TEXT NOT NULL,
+    created_at    DATETIME,
+    expires_at    DATETIME
+  );
+`;
+
+// Where a document is while an editor has it open. Outlives the process on
+// purpose: a restart mid-edit used to lose a rename, and the next save then
+// recreated the old name beside the new one.
+const ONLYOFFICE_EDITOR_SESSIONS_DDL = `
+  CREATE TABLE IF NOT EXISTS onlyoffice_editor_sessions (
+    id               TEXT PRIMARY KEY,
+    document_key     TEXT NOT NULL,
+    relative_path    TEXT NOT NULL,
+    absolute_path    TEXT NOT NULL,
+    user_id          TEXT,
+    guest_session_id TEXT,
+    expires_at       DATETIME NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_onlyoffice_sessions_expiry ON onlyoffice_editor_sessions(expires_at);
+`;
+
+/**
+ * Two-factor on a local account.
+ *
+ * One row per account, and only a confirmed one counts: a secret written while
+ * somebody was halfway through setting their phone up must never be what
+ * stands between them and their files. `last_step` is what stops a code being
+ * used twice — the six digits are good for thirty seconds, and for one login.
+ *
+ * Recovery codes are hashed like passwords, so losing the key file beside the
+ * database costs an authenticator, not an account.
+ */
+const TWO_FACTOR_DDL = `
+  CREATE TABLE IF NOT EXISTS totp_credentials (
+    user_id TEXT PRIMARY KEY,
+    secret TEXT NOT NULL,
+    confirmed_at TEXT,
+    last_step INTEGER,
+    last_used_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS totp_recovery_codes (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_totp_recovery_user ON totp_recovery_codes(user_id);
+`;
+
+/**
+ * Passkeys: a public key per authenticator, and what is needed to trust its
+ * next signature.
+ *
+ * `credential_id` is unique across every account, not per account. An
+ * authenticator returns the same credential to whoever asks for it by name, so
+ * two accounts holding the same credential would be one key opening two doors
+ * — and the sign-in, which starts from the credential alone, would have to
+ * pick one.
+ *
+ * `sign_count` is the authenticator's own counter, and it only ever goes up.
+ * Keeping the last one seen is what turns a copied key into a refusal rather
+ * than a second way in. Passkeys synchronised between devices report zero for
+ * ever, which is the one case where nothing can be told from it.
+ *
+ * The public key is public: nothing here is a secret, and a stolen database
+ * gives no way to sign anything.
+ */
+const PASSKEYS_DDL = `
+  CREATE TABLE IF NOT EXISTS passkeys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    credential_id TEXT NOT NULL UNIQUE,
+    public_key TEXT NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    transports TEXT,
+    aaguid TEXT,
+    backed_up INTEGER NOT NULL DEFAULT 0,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_passkeys_user ON passkeys(user_id);
+`;
+
+/**
+ * API tokens: a credential a script holds, narrower than the account.
+ *
+ * `id` is the public half of the token and is what the value is looked up by,
+ * so authenticating a request costs one indexed read rather than a hash
+ * against every row. `secret_hash` is a SHA-256 of the other half — see
+ * apiTokens.js for why that is the right hash here and bcrypt is not.
+ *
+ * A revoked token keeps its row, with `revoked_at` set and the hash
+ * overwritten: the tombstone is what lets the log say "the token you revoked
+ * on Tuesday is still being presented", which is exactly the thing worth
+ * knowing and exactly the thing a deleted row cannot say. They are purged
+ * after ninety days.
+ *
+ * Cascaded from `users`, unlike the activity log: a token is a way in, and a
+ * way into an account that no longer exists is a way in that must not outlive
+ * it.
+ */
+const API_TOKENS_DDL = `
+  CREATE TABLE IF NOT EXISTS api_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    secret_hash TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'read',
+    created_at TEXT NOT NULL,
+    expires_at TEXT,
+    last_used_at TEXT,
+    last_used_ip TEXT,
+    revoked_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, created_at DESC);
+`;
+
+/**
+ * The activity log: who did what, when, and from where.
+ *
+ * Off unless somebody asks for it, which is why nothing else depends on it —
+ * the table is created either way and stays empty until the setting is on.
+ *
+ * Deliberately no foreign key to `users`. An account that is deleted takes its
+ * files, its passkeys and its sessions with it; what it did while it existed
+ * is the one thing a log is for, and a cascade would remove exactly the rows
+ * somebody came looking for. The actor's name is written into the row for the
+ * same reason.
+ */
+const ACTIVITY_DDL = `
+  CREATE TABLE IF NOT EXISTS activity_events (
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    action TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'ok',
+    user_id TEXT,
+    actor TEXT NOT NULL,
+    target TEXT,
+    detail TEXT,
+    ip TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_activity_at ON activity_events(at DESC);
+  CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_events(action, at DESC);
+  CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_events(user_id, at DESC);
+`;
+
+const tableExists = (db, name) =>
+  Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
 
 const getDbPath = () => {
   const configDir = directories.config;
@@ -51,6 +225,176 @@ const generateId = () =>
     : `${Date.now().toString(36)}-${crypto.randomBytes(8).toString('hex')}`;
 const DEFAULT_FAVORITE_ICON = favorites.defaultIcon;
 
+/**
+ * Where a user has recently moved or copied things to.
+ *
+ * Kept as history rather than a preference: the point is that the folders you
+ * actually use rise to the top of the destination picker without anyone
+ * curating a list. One row per user and path — using a destination again moves
+ * it up rather than adding a duplicate.
+ */
+const RECENT_DESTINATIONS_DDL = `
+  CREATE TABLE IF NOT EXISTS recent_destinations (
+    user_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    used_at DATETIME NOT NULL,
+    PRIMARY KEY (user_id, path)
+  );
+`;
+
+/**
+ * What a user chose for one folder: how to sort it, how to show it.
+ *
+ * A row per folder rather than one JSON blob per user. The blob had to be
+ * capped — it was read and rewritten whole on every change, and shipped
+ * entire on every load — so the hundred-and-first folder silently forgot the
+ * oldest. More importantly, a blob cannot be cleaned up: deleting a folder
+ * could not remove what everyone else had chosen for it, and renaming one left
+ * the preferences behind on a path that no longer existed.
+ */
+const FOLDER_PREFERENCES_DDL = `
+  CREATE TABLE IF NOT EXISTS folder_preferences (
+    user_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    sort_by TEXT,
+    sort_order TEXT,
+    view_mode TEXT,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (user_id, path)
+  );
+  CREATE INDEX IF NOT EXISTS idx_folder_preferences_path ON folder_preferences(path);
+`;
+
+/**
+ * Carry per-folder preferences out of the JSON blob they used to live in.
+ *
+ * They were two maps under `user_settings` — one for sorting, one for the view
+ * mode — capped at a hundred entries each because the whole blob was rewritten
+ * on every change. As rows they need no cap, and they can finally be cleaned up
+ * when the folder they describe is deleted or renamed.
+ *
+ * Best-effort: a preference that fails to migrate costs a folder its remembered
+ * sort, which is not worth failing a startup over.
+ */
+const migrateFolderPreferencesFromUserSettings = (db) => {
+  let rows;
+  try {
+    rows = db
+      .prepare(
+        "SELECT user_id, key, value FROM user_settings WHERE key IN ('folderSorts', 'folderViews')"
+      )
+      .all();
+  } catch (error) {
+    logger.debug({ err: error }, '[DB Migration] No folder preferences to carry over');
+    return;
+  }
+
+  const merged = new Map();
+  for (const row of rows) {
+    let parsed;
+    try {
+      parsed = JSON.parse(row.value);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== 'object') continue;
+
+    for (const [folderPath, entry] of Object.entries(parsed)) {
+      if (!folderPath || !entry || typeof entry !== 'object') continue;
+
+      const key = `${row.user_id}\u0000${folderPath}`;
+      const current = merged.get(key) || {
+        userId: row.user_id,
+        path: folderPath,
+        sortBy: null,
+        sortOrder: null,
+        viewMode: null,
+        updatedAt: 0,
+      };
+
+      if (row.key === 'folderSorts' && typeof entry.by === 'string') {
+        current.sortBy = entry.by;
+        current.sortOrder = entry.order === 'desc' ? 'desc' : 'asc';
+      } else if (row.key === 'folderViews' && typeof entry.mode === 'string') {
+        current.viewMode = entry.mode;
+      }
+
+      const updatedAt = Number(entry.updatedAt);
+      if (Number.isFinite(updatedAt) && updatedAt > current.updatedAt) {
+        current.updatedAt = updatedAt;
+      }
+      merged.set(key, current);
+    }
+  }
+
+  if (merged.size === 0) return;
+
+  const insert = db.prepare(
+    `INSERT OR REPLACE INTO folder_preferences
+       (user_id, path, sort_by, sort_order, view_mode, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  );
+
+  for (const entry of merged.values()) {
+    insert.run(
+      entry.userId,
+      entry.path,
+      entry.sortBy,
+      entry.sortOrder,
+      entry.viewMode,
+      new Date(entry.updatedAt || Date.now()).toISOString()
+    );
+  }
+
+  db.prepare("DELETE FROM user_settings WHERE key IN ('folderSorts', 'folderViews')").run();
+  logger.info({ count: merged.size }, '[DB Migration] Folder preferences moved to their own table');
+};
+
+const ensureShareOperationPermissionColumns = (db) => {
+  addColumnIfMissing(db, 'shares', 'allow_delete', 'allow_delete INTEGER NOT NULL DEFAULT 1');
+  addColumnIfMissing(
+    db,
+    'shares',
+    'allow_create_folder',
+    'allow_create_folder INTEGER NOT NULL DEFAULT 1'
+  );
+  addColumnIfMissing(
+    db,
+    'shares',
+    'allow_create_file',
+    'allow_create_file INTEGER NOT NULL DEFAULT 1'
+  );
+  addColumnIfMissing(db, 'shares', 'allow_upload', 'allow_upload INTEGER NOT NULL DEFAULT 1');
+  // Defaults to 1 so every share that already exists keeps working exactly as
+  // it did: withholding downloads is something an owner opts into, never
+  // something a migration decides for them.
+  addColumnIfMissing(db, 'shares', 'allow_download', 'allow_download INTEGER NOT NULL DEFAULT 1');
+
+  // What a share hands out of a file's history: the list of its versions, and
+  // the versions themselves. A link for anyone shows none until its owner says
+  // so; a share with named accounts shows what those accounts would see anyway,
+  // which is why the ones that exist already are switched on as they gain it.
+  const columns = new Set(
+    db
+      .prepare('PRAGMA table_info(shares)')
+      .all()
+      .map((column) => column.name)
+  );
+  for (const column of ['versions_visible', 'versions_download']) {
+    if (columns.has(column)) continue;
+    db.exec(`ALTER TABLE shares ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`UPDATE shares SET ${column} = 1 WHERE sharing_type = 'users'`);
+  }
+};
+
+const PERSONAL_FOLDER_RESERVATIONS_DDL = `
+  CREATE TABLE IF NOT EXISTS personal_folder_reservations (
+    name TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    reserved_at TEXT NOT NULL
+  );
+`;
+
 const migrate = (db) => {
   // Simple schema versioning
   db.exec(`
@@ -60,7 +404,7 @@ const migrate = (db) => {
     );
   `);
 
-const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
+  const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
   let version = Number(getVersion.get('schema_version') || 0);
 
   db.transaction(() => {
@@ -384,7 +728,7 @@ const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
     }
     if (version < 9) {
       logger.info('[DB Migration] Migrating to v9: Full-text search index...');
-      // eslint-disable-next-line global-require
+
       db.exec(require('./searchIndexStore').SEARCH_INDEX_DDL);
       db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
         'schema_version',
@@ -409,7 +753,7 @@ const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
       db.exec(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_users_personal_folder ON users(personal_folder_name);'
       );
-      // eslint-disable-next-line global-require
+
       const { claimAllPersonalFolderNames } = require('./personalFolders');
       const claimed = claimAllPersonalFolderNames(db);
       logger.info({ claimed }, '[DB Migration] Personal folder names assigned');
@@ -418,6 +762,129 @@ const getVersion = db.prepare('SELECT value FROM meta WHERE key = ?').pluck();
         String(11)
       );
       version = 11;
+    }
+
+    if (version < 12) {
+      logger.info('[DB Migration] Migrating to v12: trash...');
+      db.exec(TRASH_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(12)
+      );
+      version = 12;
+    }
+
+    if (version < 13) {
+      logger.info('[DB Migration] Migrating to v13: file versions...');
+      db.exec(VERSIONS_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(13)
+      );
+      version = 13;
+    }
+    if (version < 14) {
+      logger.info('[DB Migration] Migrating to v14: a share counts opens apart from downloads...');
+      addColumnIfMissing(db, 'shares', 'access_count', 'access_count INTEGER DEFAULT 0');
+      addColumnIfMissing(db, 'shares', 'last_access_ip', 'last_access_ip TEXT');
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(14)
+      );
+      version = 14;
+    }
+    if (version < 15) {
+      logger.info('[DB Migration] Migrating to v15: an open document keeps its identity...');
+      db.exec(ONLYOFFICE_DOCUMENT_KEYS_DDL);
+      db.exec(ONLYOFFICE_EDITOR_SESSIONS_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(15)
+      );
+      version = 15;
+    }
+    if (version < 16) {
+      logger.info('[DB Migration] Migrating to v16: a second factor...');
+      db.exec(TWO_FACTOR_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(16)
+      );
+      version = 16;
+    }
+    if (version < 17) {
+      logger.info('[DB Migration] Migrating to v17: passkeys...');
+      db.exec(PASSKEYS_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(17)
+      );
+      version = 17;
+    }
+    if (version < 18) {
+      logger.info('[DB Migration] Migrating to v18: an activity log...');
+      db.exec(ACTIVITY_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(18)
+      );
+      version = 18;
+    }
+    if (version < 19) {
+      logger.info('[DB Migration] Migrating to v19: API tokens...');
+      db.exec(API_TOKENS_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(19)
+      );
+      version = 19;
+    }
+    if (version < 20) {
+      logger.info('[DB Migration] Migrating to v20: per-folder preferences as rows...');
+      db.exec(FOLDER_PREFERENCES_DDL);
+      migrateFolderPreferencesFromUserSettings(db);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(20)
+      );
+      version = 20;
+    }
+    if (version < 21) {
+      logger.info('[DB Migration] Migrating to v21: the folders somebody files into...');
+      db.exec(RECENT_DESTINATIONS_DDL);
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(21)
+      );
+      version = 21;
+    }
+    if (version < 22) {
+      logger.info('[DB Migration] Migrating to v22: what a share permits, and when it was used...');
+      ensureShareOperationPermissionColumns(db);
+      addColumnIfMissing(db, 'shares', 'last_downloaded_at', 'last_downloaded_at DATETIME');
+      addColumnIfMissing(db, 'shares', 'last_download_ip', 'last_download_ip TEXT');
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(22)
+      );
+      version = 22;
+    }
+    if (version < 23) {
+      logger.info('[DB Migration] Migrating to v23: one personal folder per account...');
+      db.exec(PERSONAL_FOLDER_RESERVATIONS_DDL);
+      // Rows an account's deletion used to leave behind. None of these tables
+      // points at users through a foreign key, so nothing ever removed them.
+      if (tableExists(db, 'folder_preferences')) {
+        db.exec('DELETE FROM folder_preferences WHERE user_id NOT IN (SELECT id FROM users)');
+      }
+      if (tableExists(db, 'recent_destinations')) {
+        db.exec('DELETE FROM recent_destinations WHERE user_id NOT IN (SELECT id FROM users)');
+      }
+      db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)').run(
+        'schema_version',
+        String(23)
+      );
+      version = 23;
     }
   })();
 };
@@ -568,10 +1035,7 @@ const migrateFavoritesFromJson = (db) => {
       }
     }
 
-    logger.info(
-      { migratedCount, targetUserId },
-      '[DB Migration] Migrated favorites to user'
-    );
+    logger.info({ migratedCount, targetUserId }, '[DB Migration] Migrated favorites to user');
 
     // Clear favorites from app-config.json
     configData.favorites = [];
@@ -623,9 +1087,7 @@ const ensureAnonymousUser = (db) => {
   }
 };
 
-const getDb = async () => {
-  if (dbInstance) return dbInstance;
-
+const openDb = async () => {
   const dbDir = directories.config;
   await ensureDir(dbDir);
   const dbPath = getDbPath();
@@ -641,20 +1103,140 @@ const getDb = async () => {
 
   const db = new Database(dbPath);
   migrate(db);
-  // Applied on every open as well as by the migration above: a database created
-  // by another build sharing this /config may already be past v10 without the
-  // table, which would make the indexer fail with "no such table".
+  // The indexes live in a database of their own under the cache directory (see
+  // indexDb.js), and this is what gets them there. The migrations above still
+  // create their tables here, for an installation coming from before the split,
+  // and this carries them over once — copying the rows when there are any, and
+  // dropping the tables either way, so the space they held leaves app.db with
+  // them.
+  //
+  // `folder_size_index` used to be re-created here on every open as well, for a
+  // database another build sharing this /config had taken past v10 without it.
+  // That is indexDb's business now: re-creating it here put it straight back
+  // after this call had taken it out, so app.db kept a table nothing reads while
+  // the indexer read the one in the cache — and an installation upgrading would
+  // have re-walked its whole volume to fill an index it already had.
   try {
-    db.exec(FOLDER_SIZE_INDEX_DDL);
+    indexDb.moveIndexesOutOf(db);
   } catch (err) {
-    logger.warn({ err }, '[DB] Failed to ensure folder_size_index table');
+    logger.warn({ err }, '[DB] Failed to move the indexes out of app.db');
+  }
+  // Applied on every open too: a database created by another build sharing this
+  // /config may be past v12 without the trash tables.
+  try {
+    db.exec(TRASH_DDL);
+    addColumnIfMissing(db, 'trash_items', 'restore_entry', 'restore_entry TEXT');
+    // `CREATE TABLE IF NOT EXISTS` adds nothing to a table that is already
+    // there, so an installation that made `trash_items` before this column
+    // joined the definition never gets it — and a restore into a chosen folder
+    // writes it. Added here rather than in a numbered migration because the
+    // table itself is ensured on every open, for the same reason.
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure trash tables');
+  }
+  // After the trash: the versions trigger names trash_items.
+  try {
+    db.exec(VERSIONS_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure versions tables');
+  }
+  // Same reason again: a /config shared with another build may already record a
+  // later schema version without carrying these tables.
+  try {
+    db.exec(TWO_FACTOR_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure the two-factor tables');
+  }
+  try {
+    db.exec(PASSKEYS_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure the passkeys table');
+  }
+  try {
+    db.exec(ACTIVITY_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure the activity log table');
+  }
+  try {
+    db.exec(API_TOKENS_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure the API tokens table');
+  }
+  try {
+    db.exec(ONLYOFFICE_DOCUMENT_KEYS_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure the ONLYOFFICE document key table');
+  }
+  try {
+    db.exec(ONLYOFFICE_EDITOR_SESSIONS_DDL);
+  } catch (err) {
+    logger.warn({ err }, '[DB] Failed to ensure the ONLYOFFICE editor session table');
   }
   ensureAnonymousUser(db);
-  dbInstance = db;
-  return dbInstance;
+  return db;
+};
+
+/**
+ * The application database, opened on first use.
+ *
+ * Everything that starts with the server asks for it at once. Each caller passed the
+ * check for an open database before the first one had finished opening it, and went on
+ * to open app.db again and run the migrations over it in parallel: four connections at
+ * every start, four sets of `CREATE TABLE IF NOT EXISTS`, and whichever finished last
+ * became the one everybody used. One opening is shared instead.
+ */
+let dbOpening = null;
+const getDb = async () => {
+  if (dbInstance) return dbInstance;
+  if (!dbOpening) {
+    dbOpening = openDb()
+      .then((db) => {
+        dbInstance = db;
+        return db;
+      })
+      .finally(() => {
+        dbOpening = null;
+      });
+  }
+  return dbOpening;
+};
+
+const closeDb = () => {
+  if (!dbInstance) return;
+  dbInstance.close();
+  dbInstance = null;
+};
+
+/**
+ * A statement prepared once per database and kept.
+ *
+ * `db.prepare` compiles the SQL every time it is called, and the hot paths — a listing
+ * asking whether each of a thousand rows is a favourite — called it per row. Kept in a
+ * WeakMap so the cache goes when the connection does, which is what a test that opens a
+ * database per case needs.
+ */
+const statementCache = new WeakMap();
+
+const prepared = (db, sql) => {
+  let cache = statementCache.get(db);
+  if (!cache) {
+    cache = new Map();
+    statementCache.set(db, cache);
+  }
+  let statement = cache.get(sql);
+  if (!statement) {
+    statement = db.prepare(sql);
+    cache.set(sql, statement);
+  }
+  return statement;
 };
 
 module.exports = {
+  closeDb,
+  prepared,
   getDb,
   getDbPath,
+  // The index database keeps its own copy of this table, so it needs the same
+  // definition rather than a second one that can drift from it.
+  FOLDER_SIZE_INDEX_DDL,
 };
